@@ -2,7 +2,10 @@
 name = "city-live-monitor"
 version = "0.1.0"
 description = "End-to-end hybrid data platform for city live monitoring"
-authors = [{name = "Gabriel Silva", email = "gabrielmsilva4@ua.pt"}]
+authors = [
+    {name = "Gabriel Silva", email = "gabrielmsilva4@ua.pt"},
+    {name = "Hugo Castro"},
+]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
