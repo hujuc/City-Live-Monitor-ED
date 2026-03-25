@@ -15,6 +15,9 @@ dependencies = [
     "rich>=13.9.4",
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
+    "requests>=2.32.0",
+    "pandas>=2.2.0",
+    "pyarrow>=17.0.0",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +60,7 @@ reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
