@@ -1,46 +1,20 @@
-"""
-Configuration Module
+"""Compatibility shim for legacy imports.
 
-Handles environment variables and application configuration.
+Canonical settings now live in src/config/settings.py.
 """
 
-import os
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-from dotenv import load_dotenv
 
-load_dotenv()
+_SRC_SETTINGS = Path(__file__).resolve().parents[1] / "src" / "config" / "settings.py"
+_SPEC = spec_from_file_location("_clm_src_config_settings", _SRC_SETTINGS)
+if _SPEC is None or _SPEC.loader is None:
+    raise RuntimeError(f"Unable to load canonical config module from {_SRC_SETTINGS}")
 
+_MODULE = module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
 
-class Config:
-    """Application configuration from environment variables."""
+Config = _MODULE.Config
 
-    # Project paths
-    PROJECT_ROOT = Path(__file__).parent.parent
-    DATA_DIR = PROJECT_ROOT / "data"
-    BRONZE_DIR = DATA_DIR / "bronze"
-    SILVER_DIR = DATA_DIR / "silver"
-    GOLD_DIR = DATA_DIR / "gold"
-    LOGS_DIR = PROJECT_ROOT / "logs"
-
-    # Kafka
-    KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-
-    # API server
-    API_HOST = os.getenv("API_HOST", "0.0.0.0")
-    API_PORT = int(os.getenv("API_PORT", "8000"))
-
-    # Logging
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-    LOG_FILE = os.getenv("LOG_FILE", str(LOGS_DIR / "pipeline.log"))
-
-    @classmethod
-    def ensure_directories(cls) -> None:
-        """Create necessary directories if they don't exist."""
-        cls.BRONZE_DIR.mkdir(parents=True, exist_ok=True)
-        cls.SILVER_DIR.mkdir(parents=True, exist_ok=True)
-        cls.GOLD_DIR.mkdir(parents=True, exist_ok=True)
-        cls.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-Config.ensure_directories()
+__all__ = ["Config"]

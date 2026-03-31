@@ -77,3 +77,5 @@ rows.json
 logs/
 scheduler.log
 scheduler.pid
+
+data/checkpoints/**

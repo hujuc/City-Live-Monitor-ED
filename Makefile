@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck serve-api
+.PHONY: setup test lint typecheck serve-api stream-events stream-noise311
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -23,3 +23,9 @@ typecheck:
 
 serve-api:
 	uv run clm api --host 0.0.0.0 --port 8000
+
+stream-events:
+	uv run clm stream-events --once
+
+stream-noise311:
+	uv run clm stream-noise311 --once

@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     "requests>=2.32.0",
+    "kafka-python>=2.0.2",
     "pandas>=2.2.0",
     "pyarrow>=17.0.0",
 ]
