@@ -15,14 +15,14 @@ from backend.ingestion.streaming.common import (
     parse_iso8601_or_now,
     write_ndjson_snapshot,
 )
-from backend.ingestion.streaming.kafka_client import JsonKafkaProducer
+from backend.ingestion.streaming.kafka_client import JsonKafkaProducer, KafkaProducerLike
 from config.settings import Config
 
 
 class PermittedEventsPoller(BaseIngester):
     """Polls Permitted Events endpoint and publishes normalized envelopes to Kafka."""
 
-    def __init__(self, producer: JsonKafkaProducer | None = None) -> None:
+    def __init__(self, producer: KafkaProducerLike | None = None) -> None:
         self._producer = producer or JsonKafkaProducer(Config.KAFKA_BOOTSTRAP_SERVERS)
         self._breaker = CircuitBreaker(
             max_failures=Config.STREAM_CIRCUIT_BREAKER_FAILURES,
