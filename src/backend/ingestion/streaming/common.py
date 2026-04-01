@@ -62,6 +62,64 @@ def fetch_socrata_rows(
     return payload
 
 
+def fetch_socrata_rows_paginated(
+    endpoint: str,
+    timestamp_field: str,
+    static_where: str,
+    app_token: str | None,
+    timeout_seconds: int,
+    limit: int,
+    cursor: str | None = None,
+    first_page_inclusive: bool = False,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch all pages newer than cursor using timestamp keyset pagination."""
+    all_rows: list[dict[str, Any]] = []
+    current_cursor = cursor
+    first_page = True
+    max_timestamp: str | None = None
+
+    while True:
+        where_clauses = [static_where] if static_where else []
+        if current_cursor:
+            comparator = ">=" if first_page and first_page_inclusive else ">"
+            where_clauses.append(f"{timestamp_field} {comparator} '{current_cursor}'")
+
+        params: dict[str, Any] = {
+            "$order": f"{timestamp_field} ASC",
+            "$limit": limit,
+        }
+        if where_clauses:
+            params["$where"] = " AND ".join(where_clauses)
+
+        page = fetch_socrata_rows(
+            endpoint=endpoint,
+            params=params,
+            app_token=app_token,
+            timeout_seconds=timeout_seconds,
+        )
+
+        if not page:
+            break
+
+        all_rows.extend(page)
+        last_ts = page[-1].get(timestamp_field)
+        if not last_ts:
+            logger.warning(
+                "[streaming] Missing '{}' in page tail row; stopping pagination",
+                timestamp_field,
+            )
+            break
+
+        max_timestamp = str(last_ts)
+        current_cursor = str(last_ts)
+        first_page = False
+
+        if len(page) < limit:
+            break
+
+    return all_rows, max_timestamp
+
+
 def write_ndjson_snapshot(root: Path, source: str, rows: list[dict[str, Any]]) -> Path:
     """Persist raw API rows in Bronze as immutable NDJSON snapshots."""
     now = datetime.now(tz=UTC)
