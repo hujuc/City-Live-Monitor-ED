@@ -71,7 +71,7 @@ def write_ndjson_snapshot(root: Path, source: str, rows: list[dict[str, Any]]) -
 
     with destination.open("w", encoding="utf-8") as handle:
         for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=True))
+            handle.write(json.dumps(row, ensure_ascii=False))
             handle.write("\n")
 
     return destination

@@ -94,8 +94,7 @@ class PermittedEventsPoller(BaseIngester):
         if checkpoint:
             where = f"start_date_time > '{checkpoint}'"
         else:
-            now_utc = self._to_socrata_datetime(datetime.now(tz=timezone.utc))
-            where = f"start_date_time >= '{now_utc}'"
+            where = f"start_date_time >= '{Config.EVENTS_BACKFILL_START}'"
 
         return {
             "$where": where,
