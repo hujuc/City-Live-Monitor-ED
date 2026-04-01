@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     "requests>=2.32.0",
+    "kafka-python>=2.0.2",
     "pandas>=2.2.0",
     "pyarrow>=17.0.0",
 ]
@@ -60,9 +61,14 @@ reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "."]
+pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=src --cov-report=html --cov-report=term"
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+]

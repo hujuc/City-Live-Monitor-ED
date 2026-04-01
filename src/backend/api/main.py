@@ -4,10 +4,9 @@ FastAPI REST Server
 Serves analytics-ready data from the Silver/Gold layers.
 """
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.settings import Config
 from backend.storage.silver import SilverStorage
 
 app = FastAPI(

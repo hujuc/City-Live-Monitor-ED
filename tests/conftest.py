@@ -2,8 +2,9 @@
 pytest configuration and shared fixtures.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -25,8 +26,9 @@ def tmp_silver(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_parquet(tmp_path: Path) -> Path:
     """Write a minimal valid Parquet file for use in validation tests."""
-    import pandas as pd
     import numpy as np
+    import pandas as pd
+
     path = tmp_path / "sample.parquet"
     # Use random data so compression doesn't shrink the file below the 100 KB floor
     rng = np.random.default_rng(42)

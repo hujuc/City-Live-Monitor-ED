@@ -9,11 +9,11 @@ Features:
   - Validation: checks file size and Parquet magic bytes
 """
 
-import time
 import argparse
-from pathlib import Path
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 
 import requests
 from loguru import logger
@@ -40,6 +40,7 @@ MAX_WORKERS = 4
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DownloadTask:
     taxi_type: str
@@ -63,6 +64,7 @@ class DownloadTask:
 # Validation
 # ---------------------------------------------------------------------------
 
+
 def _validate(path: Path) -> bool:
     if path.stat().st_size < MIN_FILE_BYTES:
         return False
@@ -73,6 +75,7 @@ def _validate(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
+
 
 def _download(task: DownloadTask) -> tuple[DownloadTask, bool, str]:
     dest = task.dest_path
@@ -123,12 +126,9 @@ def _download(task: DownloadTask) -> tuple[DownloadTask, bool, str]:
 # Orchestration
 # ---------------------------------------------------------------------------
 
+
 def build_tasks(taxi_types: list[str], year_months: list[tuple[int, int]]) -> list[DownloadTask]:
-    return [
-        DownloadTask(taxi_type=t, year=y, month=m)
-        for t in taxi_types
-        for y, m in year_months
-    ]
+    return [DownloadTask(taxi_type=t, year=y, month=m) for t in taxi_types for y, m in year_months]
 
 
 def run(tasks: list[DownloadTask], workers: int = MAX_WORKERS) -> None:
@@ -141,7 +141,9 @@ def run(tasks: list[DownloadTask], workers: int = MAX_WORKERS) -> None:
         futures = {pool.submit(_download, t): t for t in tasks}
         for i, future in enumerate(as_completed(futures), 1):
             task, success, msg = future.result()
-            logger.info("[{}/{}] [{}] {} — {}", i, total, "OK" if success else "FAIL", task.filename, msg)
+            logger.info(
+                "[{}/{}] [{}] {} — {}", i, total, "OK" if success else "FAIL", task.filename, msg
+            )
             (ok if success else failed).append(task)
 
     logger.info("")
@@ -156,20 +158,19 @@ def run(tasks: list[DownloadTask], workers: int = MAX_WORKERS) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download NYC TLC Parquet files")
-    parser.add_argument("--taxi-types", nargs="+", default=["yellow"],
-                        choices=["yellow", "green", "fhv", "fhvhv"])
+    parser.add_argument(
+        "--taxi-types", nargs="+", default=["yellow"], choices=["yellow", "green", "fhv", "fhvhv"]
+    )
     parser.add_argument("--years", nargs="+", type=int, default=[2023, 2024, 2025])
     parser.add_argument("--workers", type=int, default=MAX_WORKERS)
     args = parser.parse_args()
 
     # Build year/month pairs — skip months we know don't exist yet
     import datetime
+
     cutoff = datetime.date(2025, 11, 1)  # last confirmed available month
     year_months = [
-        (y, m)
-        for y in args.years
-        for m in range(1, 13)
-        if datetime.date(y, m, 1) <= cutoff
+        (y, m) for y in args.years for m in range(1, 13) if datetime.date(y, m, 1) <= cutoff
     ]
 
     tasks = build_tasks(args.taxi_types, year_months)

@@ -1,8 +1,9 @@
 """Tests for src/backend/storage/bronze.py and silver.py"""
 
 from pathlib import Path
+
 import pandas as pd
-import pytest
+
 from backend.storage.bronze import BronzeStorage
 from backend.storage.silver import SilverStorage
 
