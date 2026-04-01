@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 # since PYTHONPATH=/app/src makes the source importable directly.
 RUN UV_SYSTEM_PYTHON=1 uv sync --no-dev --no-install-project
 
-COPY config/ config/
+COPY src/config/ src/config/
 COPY src/backend/ src/backend/
 
 ENV PYTHONPATH=/app/src
