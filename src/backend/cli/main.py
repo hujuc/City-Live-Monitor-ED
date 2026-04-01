@@ -5,12 +5,14 @@ Command-line interface for the City Live Monitor platform.
 """
 
 import time
+from pathlib import Path
 
 import click
 import uvicorn
 from loguru import logger
 
 from backend.ingestion.streaming import Noise311Poller, PermittedEventsPoller
+from backend.processing.batch import TLCBatchProcessor
 from backend.utils.logging import setup_logging
 from config.settings import Config
 
@@ -77,6 +79,29 @@ def stream_noise311(once: bool) -> None:
             time.sleep(Config.NOISE311_POLL_SECONDS)
     finally:
         poller.close()
+
+
+@cli.command("batch-process-tlc")
+@click.option("--taxi-type", default="yellow", show_default=True)
+@click.option("--max-files", type=int, default=None)
+def batch_process_tlc(taxi_type: str, max_files: int | None) -> None:
+    """Process TLC Bronze parquet files into Silver partitions."""
+    bronze_root = Config.BRONZE_DIR / "tlc" / taxi_type
+    destination = Path(f"tlc/{taxi_type}")
+    processor = TLCBatchProcessor()
+
+    stats = processor.process_bronze_tree(
+        bronze_root=bronze_root,
+        destination=destination,
+        max_files=max_files,
+    )
+    logger.info(
+        "[cli] batch-process-tlc finished: files={} rows_in={} rows_out={} dropped={}",
+        stats.files_processed,
+        stats.rows_read,
+        stats.rows_written,
+        stats.rows_dropped,
+    )
 
 
 if __name__ == "__main__":
