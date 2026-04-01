@@ -20,7 +20,9 @@ class JsonKafkaProducer:
         try:
             self._producer = KafkaProducer(
                 bootstrap_servers=bootstrap_servers,
-                value_serializer=lambda value: json.dumps(value, ensure_ascii=True).encode("utf-8"),
+                value_serializer=lambda value: json.dumps(value, ensure_ascii=False).encode(
+                    "utf-8"
+                ),
                 key_serializer=lambda key: key.encode("utf-8"),
                 acks="all",
                 retries=3,

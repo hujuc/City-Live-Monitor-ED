@@ -6,7 +6,7 @@ windowed aggregations (per assignment spec section 4.2).
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from loguru import logger
@@ -22,7 +22,7 @@ class EventEnvelope:
     source: str
     timestamp: datetime
     payload: dict
-    received_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    received_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
     @property
     def is_late(self, watermark_delay: timedelta = timedelta(minutes=5)) -> bool:
@@ -92,7 +92,5 @@ class EventProcessor(BaseProcessor):
         self._evict_old_ids()
 
     def _evict_old_ids(self) -> None:
-        cutoff = datetime.now(tz=timezone.utc) - self._dedup_window
-        self._seen_ids = {
-            eid: ts for eid, ts in self._seen_ids.items() if ts > cutoff
-        }
+        cutoff = datetime.now(tz=UTC) - self._dedup_window
+        self._seen_ids = {eid: ts for eid, ts in self._seen_ids.items() if ts > cutoff}

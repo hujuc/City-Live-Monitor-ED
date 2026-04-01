@@ -10,14 +10,18 @@ import click
 import uvicorn
 from loguru import logger
 
-from config.settings import Config
 from backend.ingestion.streaming import Noise311Poller, PermittedEventsPoller
 from backend.utils.logging import setup_logging
+from config.settings import Config
 
 
 @click.group()
-@click.option("--log-level", default=Config.LOG_LEVEL, show_default=True,
-              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False))
+@click.option(
+    "--log-level",
+    default=Config.LOG_LEVEL,
+    show_default=True,
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+)
 def cli(log_level: str) -> None:
     """City Live Monitor — data pipeline CLI."""
     setup_logging(log_level=log_level, log_file=Config.LOGS_DIR / "pipeline.log")

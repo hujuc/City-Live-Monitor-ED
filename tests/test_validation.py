@@ -1,8 +1,9 @@
 """Tests for src/backend/utils/validation.py"""
 
 from pathlib import Path
+
 import pandas as pd
-import pytest
+
 from backend.utils.validation import validate_parquet
 
 

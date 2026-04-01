@@ -1,13 +1,12 @@
 """Incremental ingestion for NYC 311 Noise complaints (Socrata erm2-nwe9)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 from requests import RequestException
 
-from config.settings import Config
 from backend.core.ingester import BaseIngester
 from backend.ingestion.streaming.common import (
     CircuitBreaker,
@@ -17,6 +16,7 @@ from backend.ingestion.streaming.common import (
     write_ndjson_snapshot,
 )
 from backend.ingestion.streaming.kafka_client import JsonKafkaProducer
+from config.settings import Config
 
 
 class Noise311Poller(BaseIngester):
@@ -84,7 +84,9 @@ class Noise311Poller(BaseIngester):
         if max_created_date:
             self._write_checkpoint(max_created_date)
 
-        logger.info("[noise311_poller] Published {} event(s) to {}", accepted, Config.KAFKA_NOISE311_TOPIC)
+        logger.info(
+            "[noise311_poller] Published {} event(s) to {}", accepted, Config.KAFKA_NOISE311_TOPIC
+        )
         return accepted
 
     def close(self) -> None:
@@ -124,7 +126,7 @@ class Noise311Poller(BaseIngester):
                 "event_id": event_id,
                 "source": self.source_name,
                 "timestamp": timestamp.isoformat(),
-                "received_at": datetime.now(tz=timezone.utc).isoformat(),
+                "received_at": datetime.now(tz=UTC).isoformat(),
                 "payload": row,
             }
         except Exception as exc:
@@ -145,7 +147,7 @@ class Noise311Poller(BaseIngester):
         payload = {
             "reason": reason,
             "source": self.source_name,
-            "received_at": datetime.now(tz=timezone.utc).isoformat(),
+            "received_at": datetime.now(tz=UTC).isoformat(),
             "payload": raw,
         }
         try:

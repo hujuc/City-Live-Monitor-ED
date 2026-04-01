@@ -4,7 +4,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +64,7 @@ def fetch_socrata_rows(
 
 def write_ndjson_snapshot(root: Path, source: str, rows: list[dict[str, Any]]) -> Path:
     """Persist raw API rows in Bronze as immutable NDJSON snapshots."""
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     filename = f"snapshot_{now.strftime('%Y%m%dT%H%M%SZ')}.ndjson"
     destination = root / source / str(now.year) / f"{now.month:02d}" / filename
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -93,8 +93,8 @@ def parse_iso8601_or_now(raw_value: str | None) -> datetime:
         try:
             parsed = datetime.fromisoformat(raw_value)
             if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
+                return parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
         except ValueError:
             logger.warning("[streaming] Invalid timestamp: {}", raw_value)
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)

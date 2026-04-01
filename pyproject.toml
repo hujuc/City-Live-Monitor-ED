@@ -67,3 +67,8 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=src --cov-report=html --cov-report=term"
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+]

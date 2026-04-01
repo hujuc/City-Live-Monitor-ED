@@ -1,8 +1,11 @@
 """Tests for src/backend/processing/streaming/event_processor.py"""
 
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from backend.processing.streaming.event_processor import EventProcessor, EventEnvelope
+
+from backend.processing.streaming.event_processor import EventEnvelope, EventProcessor
 
 
 def _make_raw(
@@ -10,7 +13,7 @@ def _make_raw(
     source: str = "311",
     offset_seconds: int = 0,
 ) -> dict:
-    ts = datetime.now(tz=timezone.utc) - timedelta(seconds=offset_seconds)
+    ts = datetime.now(tz=UTC) - timedelta(seconds=offset_seconds)
     return {
         "event_id": event_id,
         "source": source,
@@ -52,7 +55,7 @@ class TestEventProcessorDedup:
         proc = EventProcessor(dedup_window=timedelta(milliseconds=1))
         proc.process_event(_make_raw("evict-1"))
         # Force eviction by advancing received_at of the stored entry
-        import time; time.sleep(0.01)
+        time.sleep(0.01)
         # Trigger eviction via a new event
         proc.process_event(_make_raw("trigger"))
         # Now the original ID should be gone from the window
@@ -62,7 +65,7 @@ class TestEventProcessorDedup:
 
 class TestEventProcessorMalformed:
     def test_missing_event_id_rejected(self) -> None:
-        raw = {"source": "311", "timestamp": datetime.now(tz=timezone.utc).isoformat()}
+        raw = {"source": "311", "timestamp": datetime.now(tz=UTC).isoformat()}
         assert EventProcessor().process_event(raw) is None
 
     def test_missing_timestamp_rejected(self) -> None:
@@ -91,7 +94,6 @@ class TestEventProcessorLate:
 
 class TestEventProcessorProcessMethod:
     def test_process_raises(self, tmp_path) -> None:
-        from pathlib import Path
         proc = EventProcessor()
         with pytest.raises(NotImplementedError):
             proc.process(tmp_path / "src", tmp_path / "dst")

@@ -1,13 +1,12 @@
 """Periodic ingestion for NYC Permitted Events (Socrata tvpp-9vvx)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 from requests import RequestException
 
-from config.settings import Config
 from backend.core.ingester import BaseIngester
 from backend.ingestion.streaming.common import (
     CircuitBreaker,
@@ -17,6 +16,7 @@ from backend.ingestion.streaming.common import (
     write_ndjson_snapshot,
 )
 from backend.ingestion.streaming.kafka_client import JsonKafkaProducer
+from config.settings import Config
 
 
 class PermittedEventsPoller(BaseIngester):
@@ -72,7 +72,9 @@ class PermittedEventsPoller(BaseIngester):
                 )
                 accepted += 1
 
-                event_start = self._to_socrata_datetime(parse_iso8601_or_now(row.get("start_date_time")))
+                event_start = self._to_socrata_datetime(
+                    parse_iso8601_or_now(row.get("start_date_time"))
+                )
                 if max_start_date_time is None or event_start > max_start_date_time:
                     max_start_date_time = event_start
             except Exception as exc:
@@ -82,7 +84,9 @@ class PermittedEventsPoller(BaseIngester):
         if max_start_date_time:
             self._write_checkpoint(max_start_date_time)
 
-        logger.info("[events_poller] Published {} event(s) to {}", accepted, Config.KAFKA_EVENTS_TOPIC)
+        logger.info(
+            "[events_poller] Published {} event(s) to {}", accepted, Config.KAFKA_EVENTS_TOPIC
+        )
         return accepted
 
     def close(self) -> None:
@@ -119,7 +123,7 @@ class PermittedEventsPoller(BaseIngester):
         self._checkpoint_file.write_text(start_date_time_iso, encoding="utf-8")
 
     def _to_socrata_datetime(self, value: datetime) -> str:
-        normalized = value.astimezone(timezone.utc)
+        normalized = value.astimezone(UTC)
         return normalized.strftime("%Y-%m-%dT%H:%M:%S")
 
     def _normalize(self, row: dict[str, Any]) -> dict[str, Any] | None:
@@ -139,7 +143,7 @@ class PermittedEventsPoller(BaseIngester):
                 "event_id": event_id,
                 "source": self.source_name,
                 "timestamp": timestamp.isoformat(),
-                "received_at": datetime.now(tz=timezone.utc).isoformat(),
+                "received_at": datetime.now(tz=UTC).isoformat(),
                 "payload": row,
             }
         except Exception as exc:
@@ -150,7 +154,7 @@ class PermittedEventsPoller(BaseIngester):
         payload = {
             "reason": reason,
             "source": self.source_name,
-            "received_at": datetime.now(tz=timezone.utc).isoformat(),
+            "received_at": datetime.now(tz=UTC).isoformat(),
             "payload": raw,
         }
         try:

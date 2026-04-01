@@ -32,5 +32,6 @@ class BronzeStorage:
 
     def record(self, source: str, year: int, filename: str, size_bytes: int) -> None:
         """Log that a file was written to the bronze layer."""
-        path = self.destination(source, year, filename)
-        logger.info("[bronze] Recorded {}/{}/{} ({:.1f} MB)", source, year, filename, size_bytes / 1e6)
+        logger.info(
+            "[bronze] Recorded {}/{}/{} ({:.1f} MB)", source, year, filename, size_bytes / 1e6
+        )

@@ -22,6 +22,7 @@ def validate_parquet(path: Path) -> bool:
 
     try:
         import pyarrow.parquet as pq  # type: ignore
+
         pq.read_metadata(path)
     except ImportError:
         pass  # pyarrow not installed — magic bytes check is sufficient
