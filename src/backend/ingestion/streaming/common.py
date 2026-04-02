@@ -77,6 +77,15 @@ def fetch_socrata_rows_paginated(
     current_cursor = cursor
     first_page = True
     max_timestamp: str | None = None
+    page_number = 0
+
+    logger.info(
+        "[streaming] Starting paginated fetch endpoint={} field={} limit={} cursor={}",
+        endpoint,
+        timestamp_field,
+        limit,
+        cursor,
+    )
 
     while True:
         where_clauses = [static_where] if static_where else []
@@ -97,6 +106,14 @@ def fetch_socrata_rows_paginated(
             app_token=app_token,
             timeout_seconds=timeout_seconds,
         )
+        page_number += 1
+
+        logger.info(
+            "[streaming] Page {} fetched {} row(s) (cumulative={})",
+            page_number,
+            len(page),
+            len(all_rows) + len(page),
+        )
 
         if not page:
             break
@@ -116,6 +133,13 @@ def fetch_socrata_rows_paginated(
 
         if len(page) < limit:
             break
+
+    logger.info(
+        "[streaming] Paginated fetch completed pages={} rows={} max_timestamp={}",
+        page_number,
+        len(all_rows),
+        max_timestamp,
+    )
 
     return all_rows, max_timestamp
 

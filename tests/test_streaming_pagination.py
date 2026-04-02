@@ -137,3 +137,13 @@ def test_noise_checkpoint_advanced_on_success(monkeypatch, tmp_path: Path) -> No
 
     assert accepted == 2
     assert checkpoint == "2026-01-01T00:00:02"
+
+
+def test_noise_checkpoint_with_timezone_is_normalized_on_read(tmp_path: Path) -> None:
+    poller = Noise311Poller(producer=_DummyProducer())
+    poller._checkpoint_file = tmp_path / "noise_checkpoint.txt"
+    poller._checkpoint_file.write_text("2020-01-02T14:22:38+00:00", encoding="utf-8")
+
+    checkpoint = poller._read_checkpoint()
+
+    assert checkpoint == "2020-01-02T14:22:38"
