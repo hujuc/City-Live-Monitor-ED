@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck serve-api stream-events stream-noise311
+.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -29,3 +29,6 @@ stream-events:
 
 stream-noise311:
 	uv run clm stream-noise311 --once
+
+process-tlc-batch:
+	uv run clm batch-process-tlc --taxi-type yellow
