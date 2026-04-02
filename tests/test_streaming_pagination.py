@@ -48,18 +48,20 @@ def test_fetch_socrata_rows_paginated_multiple_pages(monkeypatch) -> None:
 
     assert len(rows) == 5
     assert max_ts == "2026-01-01T00:00:05"
-    assert (
-        calls[0]["$where"]
-        == "complaint_type like 'Noise%' AND created_date > '2026-01-01T00:00:00'"
+    # Page 1: first fetch uses > (no offset yet)
+    assert calls[0]["$where"] == (
+        "complaint_type like 'Noise%' AND created_date > '2026-01-01T00:00:00'"
     )
-    assert (
-        calls[1]["$where"]
-        == "complaint_type like 'Noise%' AND created_date > '2026-01-01T00:00:02'"
+    assert "$offset" not in calls[0]
+    # Pages 2+: full previous page → use >= with $offset to protect boundary duplicates
+    assert calls[1]["$where"] == (
+        "complaint_type like 'Noise%' AND created_date >= '2026-01-01T00:00:02'"
     )
-    assert (
-        calls[2]["$where"]
-        == "complaint_type like 'Noise%' AND created_date > '2026-01-01T00:00:04'"
+    assert calls[1]["$offset"] == 1  # 1 row with T00:02 on page 1
+    assert calls[2]["$where"] == (
+        "complaint_type like 'Noise%' AND created_date >= '2026-01-01T00:00:04'"
     )
+    assert calls[2]["$offset"] == 1  # 1 row with T00:04 on page 2
 
 
 def test_fetch_socrata_rows_paginated_first_page_inclusive(monkeypatch) -> None:
@@ -111,6 +113,42 @@ def test_events_checkpoint_not_advanced_on_publish_error(monkeypatch, tmp_path: 
 
     assert accepted == 1
     assert checkpoint == "2026-01-01T00:00:00"
+
+
+def test_fetch_socrata_rows_paginated_duplicate_timestamps(monkeypatch) -> None:
+    """Rows sharing a timestamp across a page boundary must not be skipped."""
+    calls: list[dict] = []
+    pages = [
+        # Full page — all rows share the same timestamp
+        [{"created_date": "2026-01-01T00:00:01"}, {"created_date": "2026-01-01T00:00:01"}],
+        # Partial page — still same timestamp, ends pagination
+        [{"created_date": "2026-01-01T00:00:01"}],
+    ]
+
+    def _fake_fetch(*, endpoint, params, app_token, timeout_seconds):
+        calls.append(params)
+        return pages[len(calls) - 1]
+
+    monkeypatch.setattr(common, "fetch_socrata_rows", _fake_fetch)
+
+    rows, max_ts = common.fetch_socrata_rows_paginated(
+        endpoint="http://example",
+        timestamp_field="created_date",
+        static_where="complaint_type like 'Noise%'",
+        app_token=None,
+        timeout_seconds=30,
+        limit=2,
+        cursor="2026-01-01T00:00:00",
+        first_page_inclusive=False,
+    )
+
+    assert len(rows) == 3
+    assert max_ts == "2026-01-01T00:00:01"
+    # Second page must use >= with $offset=2 to advance past the duplicates
+    assert calls[1]["$where"] == (
+        "complaint_type like 'Noise%' AND created_date >= '2026-01-01T00:00:01'"
+    )
+    assert calls[1]["$offset"] == 2
 
 
 def test_noise_checkpoint_advanced_on_success(monkeypatch, tmp_path: Path) -> None:

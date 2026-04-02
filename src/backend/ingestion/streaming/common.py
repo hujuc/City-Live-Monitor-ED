@@ -62,6 +62,30 @@ def fetch_socrata_rows(
     return payload
 
 
+def _build_page_params(
+    timestamp_field: str,
+    static_where: str,
+    current_cursor: str | None,
+    first_page: bool,
+    first_page_inclusive: bool,
+    same_ts_offset: int,
+    limit: int,
+) -> dict[str, Any]:
+    """Build Socrata query params for one pagination step."""
+    where_clauses = [static_where] if static_where else []
+    if current_cursor:
+        use_gte = (first_page and first_page_inclusive) or same_ts_offset > 0
+        comparator = ">=" if use_gte else ">"
+        where_clauses.append(f"{timestamp_field} {comparator} '{current_cursor}'")
+
+    params: dict[str, Any] = {"$order": f"{timestamp_field} ASC", "$limit": limit}
+    if same_ts_offset > 0:
+        params["$offset"] = same_ts_offset
+    if where_clauses:
+        params["$where"] = " AND ".join(where_clauses)
+    return params
+
+
 def fetch_socrata_rows_paginated(
     endpoint: str,
     timestamp_field: str,
@@ -72,7 +96,12 @@ def fetch_socrata_rows_paginated(
     cursor: str | None = None,
     first_page_inclusive: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    """Fetch all pages newer than cursor using timestamp keyset pagination."""
+    """Fetch all pages newer than cursor using timestamp keyset pagination.
+
+    When a full page ends on the same timestamp as the cursor (duplicate
+    timestamps), switches to >= with $offset to avoid skipping rows that
+    share that timestamp across a page boundary.
+    """
     all_rows: list[dict[str, Any]] = []
     current_cursor = cursor
     first_page = True
@@ -88,18 +117,15 @@ def fetch_socrata_rows_paginated(
     )
 
     while True:
-        where_clauses = [static_where] if static_where else []
-        if current_cursor:
-            comparator = ">=" if first_page and first_page_inclusive else ">"
-            where_clauses.append(f"{timestamp_field} {comparator} '{current_cursor}'")
-
-        params: dict[str, Any] = {
-            "$order": f"{timestamp_field} ASC",
-            "$limit": limit,
-        }
-        if where_clauses:
-            params["$where"] = " AND ".join(where_clauses)
-
+        params = _build_page_params(
+            timestamp_field,
+            static_where,
+            current_cursor,
+            first_page,
+            first_page_inclusive,
+            same_ts_offset,
+            limit,
+        )
         page = fetch_socrata_rows(
             endpoint=endpoint,
             params=params,
@@ -127,8 +153,9 @@ def fetch_socrata_rows_paginated(
             )
             break
 
-        max_timestamp = str(last_ts)
-        current_cursor = str(last_ts)
+        last_ts_str = str(last_ts)
+        max_timestamp = last_ts_str
+        current_cursor = last_ts_str
         first_page = False
 
         if len(page) < limit:
