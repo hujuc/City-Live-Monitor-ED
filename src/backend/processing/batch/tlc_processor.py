@@ -39,6 +39,10 @@ class TLCBatchProcessor(BaseProcessor):
     def process(self, source: Path, destination: Path) -> int:
         """Process one Bronze parquet file and write partitioned Silver parquet files."""
         df = pd.read_parquet(source)
+        return self._process_df(df, source, destination)
+
+    def _process_df(self, df: pd.DataFrame, source: Path, destination: Path) -> int:
+        """Transform a pre-loaded DataFrame and write Silver partitions."""
         if df.empty:
             logger.warning("[batch/tlc] Empty source file: {}", source)
             return 0
@@ -74,8 +78,9 @@ class TLCBatchProcessor(BaseProcessor):
         stats.files_seen = len(files)
         for src in files:
             try:
-                rows_before = len(pd.read_parquet(src))
-                rows_after = self.process(src, destination)
+                df = pd.read_parquet(src)
+                rows_before = len(df)
+                rows_after = self._process_df(df, src, destination)
                 stats.files_processed += 1
                 stats.rows_read += rows_before
                 stats.rows_written += rows_after
@@ -124,16 +129,25 @@ class TLCBatchProcessor(BaseProcessor):
             if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors="coerce")
 
+        data = data.loc[self._build_quality_mask(data)].copy()
+        if data.empty:
+            return data
+
+        return self._add_features(data)
+
+    def _build_quality_mask(self, data: pd.DataFrame) -> pd.Series:
+        """Return a boolean mask of rows that pass all quality checks."""
         mask = data["pickup_datetime_utc"].notna() & data["dropoff_datetime_utc"].notna()
 
-        if "trip_distance" in data.columns:
-            mask &= data["trip_distance"] > 0
-        if "fare_amount" in data.columns:
-            mask &= data["fare_amount"] >= 0
-        if "tip_amount" in data.columns:
-            mask &= data["tip_amount"] >= 0
-        if "total_amount" in data.columns:
-            mask &= data["total_amount"] >= 0
+        for col, op, threshold in [
+            ("trip_distance", "gt", 0),
+            ("fare_amount", "ge", 0),
+            ("tip_amount", "ge", 0),
+            ("total_amount", "ge", 0),
+            ("passenger_count", "ge", 1),
+        ]:
+            if col in data.columns:
+                mask &= getattr(data[col], op)(threshold)
 
         duration_minutes = (
             data["dropoff_datetime_utc"] - data["pickup_datetime_utc"]
@@ -147,10 +161,10 @@ class TLCBatchProcessor(BaseProcessor):
             mask &= data["dropoff_latitude"].between(-90, 90)
             mask &= data["dropoff_longitude"].between(-180, 180)
 
-        data = data.loc[mask].copy()
-        if data.empty:
-            return data
+        return mask
 
+    def _add_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Add derived columns to an already-filtered DataFrame."""
         data["trip_duration_minutes"] = (
             data["dropoff_datetime_utc"] - data["pickup_datetime_utc"]
         ).dt.total_seconds() / 60.0
@@ -178,7 +192,7 @@ class TLCBatchProcessor(BaseProcessor):
         else:
             data["cost_per_mile"] = pd.NA
 
-        data["is_unusual_midnight_trip"] = data["hour_of_day"].between(0, 3)
+        data["is_unusual_midnight_trip"] = data["hour_of_day"].between(0, 4)
         data["is_tip_outlier"] = data["tip_percentage"] > 50
         data["is_speed_outlier"] = data["trip_speed_mph"] > 80
 
