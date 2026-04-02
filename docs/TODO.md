@@ -20,7 +20,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Emit events to Kafka topics
 - [x] Exactly-once semantics (deterministic event IDs + dedup window)
 - [x] Circuit breaker for API failures
-- [ ] Pagination for large backfills (>2000 rows per poll)
+- [x] Pagination for large backfills (>2000 rows per poll)
 
 ### 3.3 Data Profiling
 

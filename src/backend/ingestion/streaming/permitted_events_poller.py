@@ -10,19 +10,19 @@ from requests import RequestException
 from backend.core.ingester import BaseIngester
 from backend.ingestion.streaming.common import (
     CircuitBreaker,
-    fetch_socrata_rows,
+    fetch_socrata_rows_paginated,
     make_event_id,
     parse_iso8601_or_now,
     write_ndjson_snapshot,
 )
-from backend.ingestion.streaming.kafka_client import JsonKafkaProducer
+from backend.ingestion.streaming.kafka_client import JsonKafkaProducer, KafkaProducerLike
 from config.settings import Config
 
 
 class PermittedEventsPoller(BaseIngester):
     """Polls Permitted Events endpoint and publishes normalized envelopes to Kafka."""
 
-    def __init__(self, producer: JsonKafkaProducer | None = None) -> None:
+    def __init__(self, producer: KafkaProducerLike | None = None) -> None:
         self._producer = producer or JsonKafkaProducer(Config.KAFKA_BOOTSTRAP_SERVERS)
         self._breaker = CircuitBreaker(
             max_failures=Config.STREAM_CIRCUIT_BREAKER_FAILURES,
@@ -39,12 +39,17 @@ class PermittedEventsPoller(BaseIngester):
             logger.warning("[events_poller] Circuit open; skipping this cycle")
             return 0
 
+        checkpoint = self._read_checkpoint()
         try:
-            rows = fetch_socrata_rows(
+            rows, max_start_date_time = fetch_socrata_rows_paginated(
                 endpoint=Config.EVENTS_API_URL,
-                params=self._build_query_params(),
+                timestamp_field="start_date_time",
+                static_where="",
                 app_token=Config.SOCRATA_APP_TOKEN,
                 timeout_seconds=Config.STREAM_REQUEST_TIMEOUT_SECONDS,
+                limit=Config.EVENTS_API_LIMIT,
+                cursor=checkpoint or Config.EVENTS_BACKFILL_START,
+                first_page_inclusive=checkpoint is None,
             )
             self._breaker.on_success()
         except (RequestException, ValueError) as exc:
@@ -57,7 +62,7 @@ class PermittedEventsPoller(BaseIngester):
         logger.info("[events_poller] Wrote Bronze snapshot: {}", snapshot_path)
 
         accepted = 0
-        max_start_date_time = self._read_checkpoint()
+        publish_errors = 0
         for row in rows:
             envelope = self._normalize(row)
             if envelope is None:
@@ -71,18 +76,18 @@ class PermittedEventsPoller(BaseIngester):
                     payload=envelope,
                 )
                 accepted += 1
-
-                event_start = self._to_socrata_datetime(
-                    parse_iso8601_or_now(row.get("start_date_time"))
-                )
-                if max_start_date_time is None or event_start > max_start_date_time:
-                    max_start_date_time = event_start
             except Exception as exc:
                 logger.error("[events_poller] Kafka publish failed: {}", exc)
                 self._send_dlq(reason="kafka_publish_failed", raw=row)
+                publish_errors += 1
 
-        if max_start_date_time:
+        if publish_errors == 0 and max_start_date_time:
             self._write_checkpoint(max_start_date_time)
+        elif publish_errors > 0:
+            logger.warning(
+                "[events_poller] {} publish error(s); checkpoint not advanced",
+                publish_errors,
+            )
 
         logger.info(
             "[events_poller] Published {} event(s) to {}", accepted, Config.KAFKA_EVENTS_TOPIC
@@ -91,20 +96,6 @@ class PermittedEventsPoller(BaseIngester):
 
     def close(self) -> None:
         self._producer.close()
-
-    def _build_query_params(self) -> dict[str, Any]:
-        checkpoint = self._read_checkpoint()
-
-        if checkpoint:
-            where = f"start_date_time > '{checkpoint}'"
-        else:
-            where = f"start_date_time >= '{Config.EVENTS_BACKFILL_START}'"
-
-        return {
-            "$where": where,
-            "$order": "start_date_time ASC",
-            "$limit": Config.EVENTS_API_LIMIT,
-        }
 
     def _read_checkpoint(self) -> str | None:
         if not self._checkpoint_file.exists():

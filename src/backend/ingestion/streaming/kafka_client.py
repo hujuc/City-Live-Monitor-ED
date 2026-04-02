@@ -1,7 +1,15 @@
 """Kafka helpers for JSON event publishing."""
 
 import json
-from typing import Any
+from typing import Any, Protocol
+
+
+class KafkaProducerLike(Protocol):
+    """Protocol for producers used by pollers (real or test doubles)."""
+
+    def send(self, topic: str, key: str, payload: dict[str, Any]) -> None: ...
+
+    def close(self) -> None: ...
 
 
 class JsonKafkaProducer:

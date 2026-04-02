@@ -10,19 +10,19 @@ from requests import RequestException
 from backend.core.ingester import BaseIngester
 from backend.ingestion.streaming.common import (
     CircuitBreaker,
-    fetch_socrata_rows,
+    fetch_socrata_rows_paginated,
     make_event_id,
     parse_iso8601_or_now,
     write_ndjson_snapshot,
 )
-from backend.ingestion.streaming.kafka_client import JsonKafkaProducer
+from backend.ingestion.streaming.kafka_client import JsonKafkaProducer, KafkaProducerLike
 from config.settings import Config
 
 
 class Noise311Poller(BaseIngester):
     """Polls 311 complaints incrementally and publishes noise events to Kafka."""
 
-    def __init__(self, producer: JsonKafkaProducer | None = None) -> None:
+    def __init__(self, producer: KafkaProducerLike | None = None) -> None:
         self._producer = producer or JsonKafkaProducer(Config.KAFKA_BOOTSTRAP_SERVERS)
         self._breaker = CircuitBreaker(
             max_failures=Config.STREAM_CIRCUIT_BREAKER_FAILURES,
@@ -39,12 +39,16 @@ class Noise311Poller(BaseIngester):
             logger.warning("[noise311_poller] Circuit open; skipping this cycle")
             return 0
 
+        checkpoint = self._read_checkpoint()
         try:
-            rows = fetch_socrata_rows(
+            rows, max_created_date = fetch_socrata_rows_paginated(
                 endpoint=Config.NOISE311_API_URL,
-                params=self._build_query_params(),
+                timestamp_field="created_date",
+                static_where="complaint_type like 'Noise%'",
                 app_token=Config.SOCRATA_APP_TOKEN,
                 timeout_seconds=Config.STREAM_REQUEST_TIMEOUT_SECONDS,
+                limit=Config.NOISE311_API_LIMIT,
+                cursor=checkpoint,
             )
             self._breaker.on_success()
         except (RequestException, ValueError) as exc:
@@ -57,7 +61,7 @@ class Noise311Poller(BaseIngester):
         logger.info("[noise311_poller] Wrote Bronze snapshot: {}", snapshot_path)
 
         accepted = 0
-        max_created_date = self._read_checkpoint()
+        publish_errors = 0
 
         for row in rows:
             envelope = self._normalize(row)
@@ -75,14 +79,16 @@ class Noise311Poller(BaseIngester):
             except Exception as exc:
                 logger.error("[noise311_poller] Kafka publish failed: {}", exc)
                 self._send_dlq(reason="kafka_publish_failed", raw=row)
+                publish_errors += 1
                 continue
 
-            row_created_date = envelope["timestamp"]
-            if max_created_date is None or row_created_date > max_created_date:
-                max_created_date = row_created_date
-
-        if max_created_date:
+        if publish_errors == 0 and max_created_date:
             self._write_checkpoint(max_created_date)
+        elif publish_errors > 0:
+            logger.warning(
+                "[noise311_poller] {} publish error(s); checkpoint not advanced",
+                publish_errors,
+            )
 
         logger.info(
             "[noise311_poller] Published {} event(s) to {}", accepted, Config.KAFKA_NOISE311_TOPIC
@@ -91,18 +97,6 @@ class Noise311Poller(BaseIngester):
 
     def close(self) -> None:
         self._producer.close()
-
-    def _build_query_params(self) -> dict[str, Any]:
-        where = "complaint_type like 'Noise%'"
-        checkpoint = self._read_checkpoint()
-        if checkpoint:
-            where += f" AND created_date > '{checkpoint}'"
-
-        return {
-            "$where": where,
-            "$order": "created_date ASC",
-            "$limit": Config.NOISE311_API_LIMIT,
-        }
 
     def _normalize(self, row: dict[str, Any]) -> dict[str, Any] | None:
         created_date = row.get("created_date")
