@@ -48,7 +48,7 @@ class Noise311Poller(BaseIngester):
                 app_token=Config.SOCRATA_APP_TOKEN,
                 timeout_seconds=Config.STREAM_REQUEST_TIMEOUT_SECONDS,
                 limit=Config.NOISE311_API_LIMIT,
-                cursor=checkpoint,
+                cursor=checkpoint or Config.NOISE311_BACKFILL_START,
             )
             self._breaker.on_success()
         except (RequestException, ValueError) as exc:

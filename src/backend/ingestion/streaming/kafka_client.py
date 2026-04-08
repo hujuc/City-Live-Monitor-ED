@@ -43,11 +43,10 @@ class JsonKafkaProducer:
             ) from exc
 
     def send(self, topic: str, key: str, payload: dict[str, Any]) -> None:
-        """Publish one JSON payload and block until broker acknowledges it."""
-        future = self._producer.send(topic=topic, key=key, value=payload)
-        future.get(timeout=30)
+        """Enqueue one JSON payload; delivery is confirmed on flush() / close()."""
+        self._producer.send(topic=topic, key=key, value=payload)
 
     def close(self) -> None:
         """Flush and close producer connection."""
-        self._producer.flush(timeout=10)
+        self._producer.flush(timeout=120)
         self._producer.close()

@@ -12,7 +12,11 @@ import uvicorn
 from loguru import logger
 
 from backend.ingestion.streaming import Noise311Poller, PermittedEventsPoller
-from backend.processing.batch import TLCBatchProcessor
+from backend.processing.batch import (
+    Noise311SilverProcessor,
+    PermittedEventsSilverProcessor,
+    TLCBatchProcessor,
+)
 from backend.utils.logging import setup_logging
 from config.settings import Config
 
@@ -97,6 +101,50 @@ def batch_process_tlc(taxi_type: str, max_files: int | None) -> None:
     )
     logger.info(
         "[cli] batch-process-tlc finished: files={} rows_in={} rows_out={} dropped={}",
+        stats.files_processed,
+        stats.rows_read,
+        stats.rows_written,
+        stats.rows_dropped,
+    )
+
+
+@cli.command("silver-process-events")
+@click.option("--max-files", type=int, default=None)
+def silver_process_events(max_files: int | None) -> None:
+    """Process Permitted Events Bronze NDJSON snapshots into Silver partitions."""
+    bronze_root = Config.BRONZE_DIR / "nyc_permitted_events"
+    destination = Path("events")
+    processor = PermittedEventsSilverProcessor()
+
+    stats = processor.process_bronze_tree(
+        bronze_root=bronze_root,
+        destination=destination,
+        max_files=max_files,
+    )
+    logger.info(
+        "[cli] silver-process-events finished: files={} rows_in={} rows_out={} dropped={}",
+        stats.files_processed,
+        stats.rows_read,
+        stats.rows_written,
+        stats.rows_dropped,
+    )
+
+
+@cli.command("silver-process-noise311")
+@click.option("--max-files", type=int, default=None)
+def silver_process_noise311(max_files: int | None) -> None:
+    """Process 311 Noise Bronze NDJSON snapshots into Silver partitions."""
+    bronze_root = Config.BRONZE_DIR / "nyc_311_noise"
+    destination = Path("noise311")
+    processor = Noise311SilverProcessor()
+
+    stats = processor.process_bronze_tree(
+        bronze_root=bronze_root,
+        destination=destination,
+        max_files=max_files,
+    )
+    logger.info(
+        "[cli] silver-process-noise311 finished: files={} rows_in={} rows_out={} dropped={}",
         stats.files_processed,
         stats.rows_read,
         stats.rows_written,

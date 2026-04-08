@@ -36,6 +36,7 @@ class Config:
     NOISE311_API_URL = os.getenv(
         "NOISE311_API_URL", "https://data.cityofnewyork.us/resource/erm2-nwe9.json"
     )
+    NOISE311_BACKFILL_START = os.getenv("NOISE311_BACKFILL_START", "2024-06-01T00:00:00")
     EVENTS_POLL_SECONDS = int(os.getenv("EVENTS_POLL_SECONDS", "1800"))
     NOISE311_POLL_SECONDS = int(os.getenv("NOISE311_POLL_SECONDS", "30"))
     EVENTS_API_LIMIT = int(os.getenv("EVENTS_API_LIMIT", "2000"))
