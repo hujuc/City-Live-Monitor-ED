@@ -67,12 +67,28 @@ class PermittedEventsSilverProcessor(BaseProcessor):
             return 0
 
         source_tag = destination.as_posix().strip("/") or _SOURCE_TAG
-        stem = source.stem
         for (year, month), part in cleaned.groupby(["partition_year", "partition_month"]):
             payload = part.drop(columns=["partition_year", "partition_month"])
-            self._silver.write(payload, source_tag, int(year), int(month), f"{stem}_silver.parquet")
+            payload = self._merge_partition(source_tag, int(year), int(month), payload)
+            self._silver.write(payload, source_tag, int(year), int(month), "events_silver.parquet")
 
         return len(cleaned)
+
+    def _merge_partition(
+        self, source_tag: str, year: int, month: int, new_data: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Merge new rows into the existing canonical partition file, dedup by event_id."""
+        existing_path = self._silver.destination(source_tag, year, month, "events_silver.parquet")
+        if not existing_path.exists():
+            return new_data
+        existing = pd.read_parquet(existing_path)
+        merged = pd.concat([existing, new_data], ignore_index=True)
+        before = len(merged)
+        merged = merged.drop_duplicates(subset=["event_id"], keep="last")
+        dupes = before - len(merged)
+        if dupes:
+            logger.debug("[events/silver] Deduped {} row(s) in {}/{:02d}", dupes, year, month)
+        return merged.reset_index(drop=True)
 
     def process_bronze_tree(
         self,

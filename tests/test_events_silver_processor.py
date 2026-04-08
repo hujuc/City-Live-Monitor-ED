@@ -108,6 +108,34 @@ def test_negative_duration_set_to_null(tmp_path: Path) -> None:
     assert pd.isna(result.iloc[0]["event_duration_hours"])
 
 
+def test_cross_snapshot_deduplication(tmp_path: Path) -> None:
+    """Same event in two snapshots must appear only once in the Silver partition."""
+    event = {
+        "event_name": "Marathon",
+        "event_location": "Brooklyn Bridge",
+        "start_date_time": "2025-09-01T08:00:00",
+        "end_date_time": "2025-09-01T14:00:00",
+        "event_borough": "Brooklyn",
+    }
+    silver = SilverStorage(root=tmp_path / "silver")
+    proc = PermittedEventsSilverProcessor(silver_storage=silver)
+
+    src1 = tmp_path / "snap1.ndjson"
+    _write_ndjson(src1, [event])
+    proc.process(src1, Path("events"))
+
+    src2 = tmp_path / "snap2.ndjson"
+    _write_ndjson(src2, [event])
+    proc.process(src2, Path("events"))
+
+    files = silver.list_files("events")
+    assert len(files) == 1  # canonical file, not two snapshot files
+
+    result = pd.read_parquet(files[0])
+    assert len(result) == 1  # deduplicated across snapshots
+    assert result.iloc[0]["event_id"] is not None
+
+
 def test_process_bronze_tree_stats(tmp_path: Path) -> None:
     bronze = tmp_path / "bronze"
     for i in range(3):
