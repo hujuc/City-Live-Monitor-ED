@@ -48,7 +48,7 @@ class Noise311Poller(BaseIngester):
                 app_token=Config.SOCRATA_APP_TOKEN,
                 timeout_seconds=Config.STREAM_REQUEST_TIMEOUT_SECONDS,
                 limit=Config.NOISE311_API_LIMIT,
-                cursor=checkpoint,
+                cursor=checkpoint or Config.NOISE311_BACKFILL_START,
             )
             self._breaker.on_success()
         except (RequestException, ValueError) as exc:
@@ -131,11 +131,25 @@ class Noise311Poller(BaseIngester):
         if not self._checkpoint_file.exists():
             return None
         raw = self._checkpoint_file.read_text(encoding="utf-8").strip()
-        return raw or None
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+            return self._to_socrata_datetime(parsed)
+        except ValueError:
+            return raw
 
     def _write_checkpoint(self, created_date_iso: str) -> None:
         self._checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_file.write_text(created_date_iso, encoding="utf-8")
+        try:
+            serialized = self._to_socrata_datetime(datetime.fromisoformat(created_date_iso))
+        except ValueError:
+            serialized = created_date_iso
+        self._checkpoint_file.write_text(serialized, encoding="utf-8")
+
+    def _to_socrata_datetime(self, value: datetime) -> str:
+        normalized = value.astimezone(UTC)
+        return normalized.strftime("%Y-%m-%dT%H:%M:%S")
 
     def _send_dlq(self, reason: str, raw: dict[str, Any]) -> None:
         payload = {

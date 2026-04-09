@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch
+.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch silver-process-events silver-process-noise311
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -32,3 +32,9 @@ stream-noise311:
 
 process-tlc-batch:
 	uv run clm batch-process-tlc --taxi-type yellow
+
+silver-process-events:
+	uv run clm silver-process-events
+
+silver-process-noise311:
+	uv run clm silver-process-noise311

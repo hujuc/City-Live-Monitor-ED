@@ -107,6 +107,9 @@ def fetch_socrata_rows_paginated(
     first_page = True
     max_timestamp: str | None = None
     same_ts_offset = 0  # rows already fetched at current_cursor's timestamp
+    page_num = 0
+
+    logger.info("[streaming] Starting paginated fetch from cursor={}", cursor or "beginning")
 
     while True:
         params = _build_page_params(
@@ -124,12 +127,26 @@ def fetch_socrata_rows_paginated(
             app_token=app_token,
             timeout_seconds=timeout_seconds,
         )
+        page_num += 1
 
         if not page:
+            logger.info(
+                "[streaming] No more rows — done after {} page(s), {} row(s) total",
+                page_num - 1,
+                len(all_rows),
+            )
             break
 
         all_rows.extend(page)
         last_ts = page[-1].get(timestamp_field)
+        logger.info(
+            "[streaming] Page {} — {} rows (cursor now: {}), {} total so far",
+            page_num,
+            len(page),
+            last_ts,
+            len(all_rows),
+        )
+
         if not last_ts:
             logger.warning(
                 "[streaming] Missing '{}' in page tail row; stopping pagination",
