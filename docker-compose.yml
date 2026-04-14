@@ -108,7 +108,9 @@ services:
       retries: 10
 
   superset:
-    image: apache/superset:6.0.0
+    build:
+      context: infra/superset
+      dockerfile: Dockerfile
     depends_on:
       superset-db:
         condition: service_healthy
@@ -118,8 +120,14 @@ services:
       DATABASE_URL: postgresql+psycopg2://superset:superset@superset-db/superset
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-changeme}
       SECRET_KEY: ${SUPERSET_SECRET_KEY:-changeme}
+      SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
     volumes:
       - superset_data:/app/superset_home
+      - ./data:/app/gold_data:ro
+      - ./infra/superset/bootstrap.sh:/app/bootstrap.sh:ro
+      - ./infra/superset/init_gold_views.sql:/app/init_gold_views.sql:ro
+      - ./infra/superset/assets.zip:/app/assets.zip:ro
 
   # ---------------------------------------------------------------------------
   # Backend — FastAPI

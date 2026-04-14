@@ -109,10 +109,10 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ## 6. Serving & Visualization
 
-- [ ] 3 Superset dashboards, each with minimum 4 charts:
-  - [ ] Dashboard 1: Late-night taxi heatmap (historical dropoff density by zone, filterable by hour/day)
-  - [ ] Dashboard 2: Tonight's events map (active permitted events overlaid on taxi demand zones)
-  - [ ] Dashboard 3: Live noise complaint feed (rolling 30-min complaint counts by borough)
+- [x] 3 Superset dashboards, each with minimum 4 charts:
+  - [x] Dashboard 1: Late-night taxi heatmap (historical dropoff density by zone, filterable by hour/day)
+  - [x] Dashboard 2: Tonight's events map (active permitted events overlaid on taxi demand zones)
+  - [x] Dashboard 3: Live noise complaint feed (rolling 30-min complaint counts by borough)
 - [ ] Query combined batch + streaming outputs to show trends/correlations
 
 ### 6.3 Deliverables
