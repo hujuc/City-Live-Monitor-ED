@@ -13,6 +13,9 @@ from loguru import logger
 
 from backend.ingestion.streaming import Noise311Poller, PermittedEventsPoller
 from backend.processing.batch import (
+    GoldEventScheduleProcessor,
+    GoldNoiseAggregationProcessor,
+    GoldTaxiDemandProcessor,
     Noise311SilverProcessor,
     PermittedEventsSilverProcessor,
     TLCBatchProcessor,
@@ -149,6 +152,41 @@ def silver_process_noise311(max_files: int | None) -> None:
         stats.rows_read,
         stats.rows_written,
         stats.rows_dropped,
+    )
+
+
+@cli.command("gold-build-taxi-demand")
+def gold_build_taxi_demand() -> None:
+    """Aggregate Silver TLC trips into Gold taxi demand table."""
+    rows = GoldTaxiDemandProcessor().build()
+    logger.info("[cli] gold-build-taxi-demand finished: {} rows written", rows)
+
+
+@cli.command("gold-build-event-schedule")
+def gold_build_event_schedule() -> None:
+    """Build Gold event schedule table from Silver events."""
+    rows = GoldEventScheduleProcessor().build()
+    logger.info("[cli] gold-build-event-schedule finished: {} rows written", rows)
+
+
+@cli.command("gold-build-noise")
+def gold_build_noise() -> None:
+    """Aggregate Silver noise311 complaints into Gold noise table."""
+    rows = GoldNoiseAggregationProcessor().build()
+    logger.info("[cli] gold-build-noise finished: {} rows written", rows)
+
+
+@cli.command("gold-build-all")
+def gold_build_all() -> None:
+    """Build all three Gold tables in sequence."""
+    taxi_rows = GoldTaxiDemandProcessor().build()
+    event_rows = GoldEventScheduleProcessor().build()
+    noise_rows = GoldNoiseAggregationProcessor().build()
+    logger.info(
+        "[cli] gold-build-all finished: taxi={} events={} noise={} rows",
+        taxi_rows,
+        event_rows,
+        noise_rows,
     )
 
 

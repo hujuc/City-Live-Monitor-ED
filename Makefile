@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch silver-process-events silver-process-noise311
+.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch silver-process-events silver-process-noise311 gold-build superset-up superset-bootstrap superset-export
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -38,3 +38,17 @@ silver-process-events:
 
 silver-process-noise311:
 	uv run clm silver-process-noise311
+
+gold-build:
+	uv run clm gold-build-all
+
+superset-up:
+	docker compose up -d superset-db superset
+
+superset-bootstrap:
+	docker compose exec superset bash /app/bootstrap.sh
+
+# Re-export dashboards after making UI changes, so they're committed to the repo
+superset-export:
+	docker compose exec superset superset export-dashboards -f /app/superset_home/assets.zip
+	docker compose cp superset:/app/superset_home/assets.zip infra/superset/assets.zip
