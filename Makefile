@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch silver-process-events silver-process-noise311
+.PHONY: setup test lint typecheck serve-api stream-events stream-noise311 process-tlc-batch silver-process-events silver-process-noise311 gold-build
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -38,3 +38,6 @@ silver-process-events:
 
 silver-process-noise311:
 	uv run clm silver-process-noise311
+
+gold-build:
+	uv run clm gold-build-all

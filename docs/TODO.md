@@ -47,14 +47,14 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 4.1 Batch Processing (NYC Taxi Data)
 
-- [ ] Clean and standardize 6+ months of taxi trip data
-- [ ] Data type casting (timestamps to UTC, coordinates to DECIMAL, money to DECIMAL)
-- [ ] Standardization rules (borough names, zone names, payment types)
-- [ ] Data quality filtering (remove invalid: zero distance, negative fare, bad coordinates, etc.)
-- [ ] Flag outliers (tip >50%, speed >80mph, unusual midnight-4am trips)
-- [ ] Feature engineering (trip_duration_minutes, trip_speed_mph, hour_of_day, day_of_week, is_weekend, is_rush_hour, tip_percentage, cost_per_mile)
-- [ ] Outlier detection (IQR/Z-score, cap trip_duration at 95th percentile)
-- [ ] Partition output by date for efficient querying
+- [x] Clean and standardize 6+ months of taxi trip data
+- [x] Data type casting (timestamps to UTC, coordinates to DECIMAL, money to DECIMAL)
+- [x] Standardization rules (borough names, zone names, payment types)
+- [x] Data quality filtering (remove invalid: zero distance, negative fare, bad coordinates, etc.)
+- [x] Flag outliers (tip >50%, speed >80mph, unusual midnight-4am trips)
+- [x] Feature engineering (trip_duration_minutes, trip_speed_mph, hour_of_day, day_of_week, is_weekend, is_rush_hour, tip_percentage, cost_per_mile)
+- [x] Outlier detection (IQR/Z-score, cap trip_duration at 95th percentile)
+- [x] Partition output by date for efficient querying
 
 ### 4.2 Stream Processing (Real-Time Data)
 
@@ -88,10 +88,10 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 5.2 Silver Layer
 
-- [ ] Cleaned taxi trips (midnight-4am filter, quality checks applied)
-- [ ] Normalized permitted events
-- [ ] Deduplicated noise complaints with lat/lon
-- [ ] New columns, removed columns, data transformations applied
+- [x] Cleaned taxi trips (midnight-4am filter, quality checks applied)
+- [x] Normalized permitted events (write-time dedup by event_id across snapshots)
+- [x] Deduplicated noise complaints with lat/lon (NYC bounds filter, null coords kept)
+- [x] New columns, removed columns, data transformations applied
 
 ### 5.3 Gold Layer
 
