@@ -95,10 +95,10 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 5.3 Gold Layer
 
-- [ ] Dimensional model (star schema) for batch data loaded into lakehouse (MinIO)
-- [ ] Taxi demand by zone x hour x day-of-week
-- [ ] Event schedule with zone mapping
-- [ ] Noise complaint aggregations by zone x hour
+- [-] Dimensional model (star schema) for batch data loaded into lakehouse (MinIO) — 3 aggregate tables built as Parquet, still on local FS not MinIO
+- [x] Taxi demand by zone x hour x day-of-week
+- [x] Event schedule with zone mapping (borough-level; lat/lon not available in source)
+- [x] Noise complaint aggregations by zone x hour (borough x complaint_type x descriptor x hour x day)
 - [ ] Streaming: 5-minute rolling window metrics tables
 
 ### 5.4 Deliverables
