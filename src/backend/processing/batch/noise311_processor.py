@@ -2,7 +2,9 @@
 
 import json
 from pathlib import Path
+from typing import cast
 
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -59,8 +61,12 @@ class Noise311SilverProcessor(BaseProcessor):
         source_tag = destination.as_posix().strip("/") or _SOURCE_TAG
         stem = source.stem
         for (year, month), part in cleaned.groupby(["partition_year", "partition_month"]):
+            year_int = cast(int, year)
+            month_int = cast(int, month)
             payload = part.drop(columns=["partition_year", "partition_month"])
-            self._silver.write(payload, source_tag, int(year), int(month), f"{stem}_silver.parquet")
+            self._silver.write(
+                payload, source_tag, year_int, month_int, f"{stem}_silver.parquet"
+            )
 
         return len(cleaned)
 
@@ -120,7 +126,7 @@ class Noise311SilverProcessor(BaseProcessor):
             duration = (
                 data["closed_datetime_utc"] - data["created_datetime_utc"]
             ).dt.total_seconds() / 3600.0
-            data["resolution_duration_hours"] = duration.where(duration >= 0, other=pd.NA)
+            data["resolution_duration_hours"] = duration.where(duration >= 0, other=np.nan)
         else:
             data["closed_datetime_utc"] = pd.NaT
             data["resolution_duration_hours"] = pd.NA

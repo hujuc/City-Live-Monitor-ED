@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 from loguru import logger
@@ -56,9 +57,11 @@ class TLCBatchProcessor(BaseProcessor):
         stem = source.stem
 
         for (year, month), part in cleaned.groupby(["partition_year", "partition_month"]):
+            year_int = cast(int, year)
+            month_int = cast(int, month)
             out_name = f"{stem}_silver.parquet"
             payload = part.drop(columns=["partition_year", "partition_month"])
-            self._silver.write(payload, source_tag, int(year), int(month), out_name)
+            self._silver.write(payload, source_tag, year_int, month_int, out_name)
 
         return int(len(cleaned))
 
