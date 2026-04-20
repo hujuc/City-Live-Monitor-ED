@@ -3,6 +3,7 @@
 """Airflow DAG for the batch processing pipeline.
 
 Pipeline:
+0) Download TLC files into Bronze (incremental)
 1) Process TLC Bronze -> Silver
 2) Process Events Bronze -> Silver
 3) Process Noise311 Bronze -> Silver
@@ -53,6 +54,15 @@ with DAG(
     max_active_runs=1,
     tags=["city-live-monitor", "batch", "medallion"],
 ) as dag:
+    ingest_tlc_bronze = BashOperator(
+        task_id="ingest_tlc_to_bronze",
+        bash_command=(
+            "cd /opt/airflow/src && "
+            "python -m backend.ingestion.batch.download_tlc "
+            "--taxi-types yellow --years 2023 2024 2025 --workers 4"
+        ),
+    )
+
     process_tlc = BashOperator(
         task_id="process_tlc_bronze_to_silver",
         bash_command=(
@@ -82,4 +92,5 @@ with DAG(
         bash_command="cd /opt/airflow/src && python -m backend.cli.main gold-build-all",
     )
 
+    ingest_tlc_bronze >> process_tlc
     _ = [process_tlc, process_events, process_noise] >> build_gold  # type: ignore[operator]
