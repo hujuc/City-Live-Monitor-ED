@@ -24,9 +24,9 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 3.3 Data Profiling
 
-- [ ] Profile ALL ingested data sources (batch + streaming samples)
-- [ ] Generate comprehensive data quality report
-- [ ] Identify and document data issues
+- [x] Profile ALL ingested data sources (batch + streaming samples)
+- [x] Generate comprehensive data quality report
+- [x] Identify and document data issues
 
 ### 3.4 Infrastructure Setup
 
@@ -37,7 +37,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 3.5 Deliverables
 
-- [ ] Data Profiling Report (executive summary, schema docs, statistical profiles, data quality issues, cleaning recommendations)
+- [x] Data Profiling Report (executive summary, schema docs, statistical profiles, data quality issues, cleaning recommendations)
 - [ ] README.md (prerequisites, quick start, services, architecture diagram)
 - [x] Code repository (.gitignore, meaningful commits, branching strategy)
 
@@ -62,18 +62,18 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Watermarking (5-minute delay, late event detection)
 - [x] State-keyed deduplication (remove duplicates within window)
 - [x] Out-of-order event detection (timestamp < previous)
-- [ ] Windowed aggregations (counts, averages per subject per time window)
-- [ ] Produce aggregated metrics tables
+- [x] Windowed aggregations (counts, averages per subject per time window)
+- [x] Produce aggregated metrics tables
 
 ### 4.3 Processing Orchestration
 
-- [ ] Airflow DAG for batch processing pipeline
-- [ ] Schedule batch jobs appropriately
+- [x] Airflow DAG for batch processing pipeline
+- [x] Schedule batch jobs appropriately
 - [ ] Monitor processing health
 
 ### 4.4 Deliverables
 
-- [ ] Processing Report (batch summary, filtering breakdown, stream processing summary, windowed aggregations, out-of-order analysis)
+- [x] Processing Report (batch summary, filtering breakdown, stream processing summary, windowed aggregations, out-of-order analysis)
 
 ---
 
@@ -99,7 +99,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Taxi demand by zone x hour x day-of-week
 - [x] Event schedule with zone mapping (borough-level; lat/lon not available in source)
 - [x] Noise complaint aggregations by zone x hour (borough x complaint_type x descriptor x hour x day)
-- [ ] Streaming: 5-minute rolling window metrics tables
+- [x] Streaming: 5-minute rolling window metrics tables
 
 ### 5.4 Deliverables
 

@@ -8,6 +8,7 @@ set -euo pipefail
 ADMIN_USER=${SUPERSET_ADMIN_USER:-admin}
 ADMIN_PASSWORD=${SUPERSET_ADMIN_PASSWORD:-admin}
 ADMIN_EMAIL=${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+PUBLIC_PORT=${SUPERSET_PUBLIC_PORT:-8088}
 DUCKDB_FILE=/app/superset_home/gold.duckdb
 DB_NAME="gold_duckdb"
 
@@ -44,7 +45,7 @@ fi
 echo "[bootstrap] Done."
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
-echo "  Login:    http://localhost:8088"
+echo "  Login:    http://localhost:${PUBLIC_PORT}"
 echo "  User:     $ADMIN_USER"
 echo "  Password: $ADMIN_PASSWORD"
 echo "═══════════════════════════════════════════════════════════════════"

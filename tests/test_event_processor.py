@@ -97,3 +97,30 @@ class TestEventProcessorProcessMethod:
         proc = EventProcessor()
         with pytest.raises(NotImplementedError):
             proc.process(tmp_path / "src", tmp_path / "dst")
+
+
+class TestEventProcessorAggregations:
+    def test_windowed_metrics_count_accepted_and_duplicates(self) -> None:
+        proc = EventProcessor()
+
+        raw = _make_raw("agg-1", source="nyc_311_noise")
+        proc.process_event(raw)
+        proc.process_event(raw)  # duplicate
+
+        metrics = proc.metrics_dataframe()
+        assert not metrics.empty
+        assert int(metrics["event_count"].sum()) == 1
+        assert int(metrics["duplicate_event_count"].sum()) == 1
+
+    def test_out_of_order_event_is_tracked(self) -> None:
+        proc = EventProcessor()
+
+        newer = _make_raw("ord-new", source="nyc_permitted_events", offset_seconds=10)
+        older = _make_raw("ord-old", source="nyc_permitted_events", offset_seconds=300)
+
+        proc.process_event(newer)
+        proc.process_event(older)
+
+        metrics = proc.metrics_dataframe()
+        assert not metrics.empty
+        assert int(metrics["out_of_order_event_count"].sum()) == 1

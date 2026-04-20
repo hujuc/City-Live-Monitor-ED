@@ -20,6 +20,8 @@ from backend.processing.batch import (
     PermittedEventsSilverProcessor,
     TLCBatchProcessor,
 )
+from backend.processing.streaming import KafkaAggregateRunner
+from backend.reporting import generate_data_profiling_report, generate_processing_report
 from backend.utils.logging import setup_logging
 from config.settings import Config
 
@@ -86,6 +88,33 @@ def stream_noise311(once: bool) -> None:
             time.sleep(Config.NOISE311_POLL_SECONDS)
     finally:
         poller.close()
+
+
+@cli.command("stream-aggregates")
+@click.option("--once/--daemon", default=True, show_default=True)
+@click.option("--max-messages", default=500, show_default=True, type=int)
+def stream_aggregates(once: bool, max_messages: int) -> None:
+    """Consume Kafka events and persist 5-minute streaming aggregate metrics to Gold."""
+    runner = KafkaAggregateRunner()
+
+    if once:
+        stats = runner.run_once(max_messages=max_messages)
+        logger.info(
+            "[cli] stream-aggregates once: seen={} rows_written={}",
+            stats["seen"],
+            stats["rows_written"],
+        )
+        return
+
+    logger.info("[cli] Starting stream aggregator in daemon mode")
+    while True:
+        stats = runner.run_once(max_messages=max_messages)
+        logger.info(
+            "[cli] stream-aggregates cycle: seen={} rows_written={}",
+            stats["seen"],
+            stats["rows_written"],
+        )
+        time.sleep(5)
 
 
 @cli.command("batch-process-tlc")
@@ -188,6 +217,21 @@ def gold_build_all() -> None:
         event_rows,
         noise_rows,
     )
+
+
+@cli.command("report-data-profiling")
+@click.option("--sample-files", default=3, show_default=True, type=int)
+def report_data_profiling(sample_files: int) -> None:
+    """Generate docs/data-profiling-report.md from Bronze samples."""
+    output = generate_data_profiling_report(sample_files=sample_files)
+    logger.info("[cli] report-data-profiling finished: {}", output)
+
+
+@cli.command("report-processing")
+def report_processing() -> None:
+    """Generate docs/processing-report.md from current pipeline artifacts."""
+    output = generate_processing_report()
+    logger.info("[cli] report-processing finished: {}", output)
 
 
 if __name__ == "__main__":
