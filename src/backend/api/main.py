@@ -5,7 +5,7 @@ Serves analytics-ready data from the Gold layer for dashboards and external cons
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
@@ -31,7 +31,13 @@ _gold = GoldStorage()
 
 def _serialize_df(df: pd.DataFrame) -> list[dict[str, Any]]:
     """Convert DataFrame to JSON-safe list of records (handles NaN, Timestamp)."""
-    return df.replace({pd.NA: None}).where(df.notna(), None).to_dict(orient="records")
+    records = df.replace({pd.NA: None}).where(df.notna(), None).to_dict(orient="records")
+    return cast(list[dict[str, Any]], records)
+
+
+def _filter_rows(df: pd.DataFrame, mask: pd.Series) -> pd.DataFrame:
+    """Typed wrapper for pandas boolean filtering to keep static checkers precise."""
+    return cast(pd.DataFrame, df[mask])
 
 
 def _load_gold_or_404(table: str) -> pd.DataFrame:
@@ -62,18 +68,18 @@ def taxi_demand(
     df = _load_gold_or_404("taxi_demand_by_zone")
 
     if borough is not None:
-        df = df[df["borough"] == borough]
+        df = _filter_rows(df, df["borough"] == borough)
     if zone_id is not None:
-        df = df[df["PULocationID"] == zone_id]
+        df = _filter_rows(df, df["PULocationID"] == zone_id)
     if hour_of_day is not None:
-        df = df[df["hour_of_day"] == hour_of_day]
+        df = _filter_rows(df, df["hour_of_day"] == hour_of_day)
     if day_of_week is not None:
-        df = df[df["day_of_week"] == day_of_week]
+        df = _filter_rows(df, df["day_of_week"] == day_of_week)
     if is_weekend is not None:
-        df = df[df["is_weekend"] == is_weekend]
+        df = _filter_rows(df, df["is_weekend"] == is_weekend)
 
     total_rows = len(df)
-    df = df.head(limit)
+    df = cast(pd.DataFrame, df.head(limit))
     return {"count": total_rows, "returned": len(df), "rows": _serialize_df(df)}
 
 
@@ -90,18 +96,18 @@ def events(
     df = _load_gold_or_404("event_schedule")
 
     if borough is not None:
-        df = df[df["borough"] == borough]
+        df = _filter_rows(df, df["borough"] == borough)
     if is_nightlife_event is not None:
-        df = df[df["is_nightlife_event"] == is_nightlife_event]
+        df = _filter_rows(df, df["is_nightlife_event"] == is_nightlife_event)
     if is_weekend_event is not None:
-        df = df[df["is_weekend_event"] == is_weekend_event]
+        df = _filter_rows(df, df["is_weekend_event"] == is_weekend_event)
     if start_after is not None:
-        df = df[df["start_datetime_utc"] >= pd.Timestamp(start_after, tz="UTC")]
+        df = _filter_rows(df, df["start_datetime_utc"] >= pd.Timestamp(start_after, tz="UTC"))
     if start_before is not None:
-        df = df[df["start_datetime_utc"] <= pd.Timestamp(start_before, tz="UTC")]
+        df = _filter_rows(df, df["start_datetime_utc"] <= pd.Timestamp(start_before, tz="UTC"))
 
     total_rows = len(df)
-    df = df.head(limit)
+    df = cast(pd.DataFrame, df.head(limit))
     return {"count": total_rows, "returned": len(df), "rows": _serialize_df(df)}
 
 
@@ -119,20 +125,20 @@ def noise(
     df = _load_gold_or_404("noise_by_borough_hour")
 
     if borough is not None:
-        df = df[df["borough"] == borough]
+        df = _filter_rows(df, df["borough"] == borough)
     if complaint_type is not None:
-        df = df[df["complaint_type"] == complaint_type]
+        df = _filter_rows(df, df["complaint_type"] == complaint_type)
     if descriptor is not None:
-        df = df[df["descriptor"] == descriptor]
+        df = _filter_rows(df, df["descriptor"] == descriptor)
     if hour_of_day is not None:
-        df = df[df["hour_of_day"] == hour_of_day]
+        df = _filter_rows(df, df["hour_of_day"] == hour_of_day)
     if day_of_week is not None:
-        df = df[df["day_of_week"] == day_of_week]
+        df = _filter_rows(df, df["day_of_week"] == day_of_week)
     if is_weekend is not None:
-        df = df[df["is_weekend"] == is_weekend]
+        df = _filter_rows(df, df["is_weekend"] == is_weekend)
 
     total_rows = len(df)
-    df = df.head(limit)
+    df = cast(pd.DataFrame, df.head(limit))
     return {"count": total_rows, "returned": len(df), "rows": _serialize_df(df)}
 
 
@@ -152,13 +158,13 @@ def summary() -> dict[str, Any]:
         df = _gold.read(table)
         entry: dict[str, Any] = {"available": True, "row_count": len(df)}
         if label == "taxi_demand":
-            entry["total_trips"] = int(df["trip_count"].sum())
+            entry["total_trips"] = int(cast(float, df["trip_count"].sum()))
             entry["boroughs"] = sorted(df["borough"].dropna().unique().tolist())
         elif label == "noise":
-            entry["total_complaints"] = int(df["complaint_count"].sum())
+            entry["total_complaints"] = int(cast(float, df["complaint_count"].sum()))
             entry["boroughs"] = sorted(df["borough"].dropna().unique().tolist())
         elif label == "events":
-            entry["nightlife_events"] = int(df["is_nightlife_event"].sum())
+            entry["nightlife_events"] = int(cast(float, df["is_nightlife_event"].sum()))
             entry["boroughs"] = sorted(df["borough"].dropna().unique().tolist())
         result[label] = entry
 

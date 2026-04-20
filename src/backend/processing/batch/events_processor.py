@@ -3,7 +3,9 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import cast
 
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -68,9 +70,11 @@ class PermittedEventsSilverProcessor(BaseProcessor):
 
         source_tag = destination.as_posix().strip("/") or _SOURCE_TAG
         for (year, month), part in cleaned.groupby(["partition_year", "partition_month"]):
+            year_int = cast(int, year)
+            month_int = cast(int, month)
             payload = part.drop(columns=["partition_year", "partition_month"])
-            payload = self._merge_partition(source_tag, int(year), int(month), payload)
-            self._silver.write(payload, source_tag, int(year), int(month), "events_silver.parquet")
+            payload = self._merge_partition(source_tag, year_int, month_int, payload)
+            self._silver.write(payload, source_tag, year_int, month_int, "events_silver.parquet")
 
         return len(cleaned)
 
@@ -150,7 +154,7 @@ class PermittedEventsSilverProcessor(BaseProcessor):
             duration = (
                 data["end_datetime_utc"] - data["start_datetime_utc"]
             ).dt.total_seconds() / 3600.0
-            data["event_duration_hours"] = duration.where(duration >= 0, other=pd.NA)
+            data["event_duration_hours"] = duration.where(duration >= 0, other=np.nan)
         else:
             data["end_datetime_utc"] = pd.NaT
             data["event_duration_hours"] = pd.NA
