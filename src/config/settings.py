@@ -14,6 +14,7 @@ class Config:
     # Project paths (this file lives in src/config/settings.py)
     PROJECT_ROOT = Path(__file__).parents[2]
     DATA_DIR = PROJECT_ROOT / "data"
+    DOCS_DIR = PROJECT_ROOT / "docs"
     BRONZE_DIR = DATA_DIR / "bronze"
     SILVER_DIR = DATA_DIR / "silver"
     GOLD_DIR = DATA_DIR / "gold"
@@ -52,6 +53,18 @@ class Config:
     NOISE311_CHECKPOINT_FILE = Path(
         os.getenv("NOISE311_CHECKPOINT_FILE", str(CHECKPOINTS_DIR / "noise311_created_date.txt"))
     )
+    STREAM_AGGREGATOR_GROUP_ID = os.getenv("STREAM_AGGREGATOR_GROUP_ID", "stream-aggregator-v1")
+    STREAM_AGGREGATOR_AUTO_OFFSET_RESET = os.getenv(
+        "STREAM_AGGREGATOR_AUTO_OFFSET_RESET", "latest"
+    )
+    STREAM_AGGREGATOR_POLL_TIMEOUT_MS = int(
+        os.getenv("STREAM_AGGREGATOR_POLL_TIMEOUT_MS", "1000")
+    )
+    STREAM_AGGREGATOR_MAX_EMPTY_POLLS = int(
+        os.getenv("STREAM_AGGREGATOR_MAX_EMPTY_POLLS", "10")
+    )
+    STREAM_AGGREGATOR_WINDOW_MINUTES = int(os.getenv("STREAM_AGGREGATOR_WINDOW_MINUTES", "5"))
+    STREAM_AGGREGATOR_TABLE_NAME = os.getenv("STREAM_AGGREGATOR_TABLE_NAME", "stream_metrics_5m")
 
     # API server
     API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -69,6 +82,7 @@ class Config:
         cls.GOLD_DIR.mkdir(parents=True, exist_ok=True)
         cls.CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
         cls.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        cls.DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 Config.ensure_directories()

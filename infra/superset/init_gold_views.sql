@@ -3,7 +3,20 @@
 -- Superset will then query these views exactly like regular SQL tables.
 
 CREATE OR REPLACE VIEW taxi_demand AS
-SELECT * FROM read_parquet('/app/gold_data/gold/taxi_demand_by_zone/taxi_demand_by_zone.parquet');
+SELECT
+	CAST(PULocationID AS INTEGER) AS PULocationID,
+	borough,
+	zone_name,
+	hour_of_day,
+	day_of_week,
+	is_weekend,
+	trip_count,
+	avg_fare_amount,
+	avg_trip_duration_minutes,
+	avg_tip_percentage,
+	total_trip_distance,
+	pct_rush_hour
+FROM read_parquet('/app/gold_data/gold/taxi_demand_by_zone/taxi_demand_by_zone.parquet');
 
 CREATE OR REPLACE VIEW events AS
 SELECT * FROM read_parquet('/app/gold_data/gold/event_schedule/event_schedule.parquet');
