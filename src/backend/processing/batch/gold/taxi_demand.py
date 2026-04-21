@@ -127,9 +127,11 @@ class GoldTaxiDemandProcessor(BaseProcessor):
         lookup = self._load_zone_lookup()
         if lookup is not None:
             combined = combined.merge(lookup, on="PULocationID", how="left")
+            combined["borough"] = combined["borough"].fillna("Unknown")
+            combined["zone_name"] = combined["zone_name"].fillna("Unknown zone")
         else:
-            combined["borough"] = None
-            combined["zone_name"] = None
+            combined["borough"] = "Unknown"
+            combined["zone_name"] = "Unknown zone"
 
         col_order = [
             "PULocationID",

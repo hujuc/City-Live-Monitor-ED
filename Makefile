@@ -136,15 +136,7 @@ health:
 	@printf "MinIO     "; curl -sf http://localhost:9000/minio/health/live >/dev/null && echo "OK" || echo "DOWN"
 
 summary:
-	@uv run python -c "\
-	from pathlib import Path; import pandas as pd; \
-	bronze = sum(1 for _ in Path('data/bronze').rglob('*') if _.is_file()); \
-	silver = sum(1 for _ in Path('data/silver').rglob('*.parquet')); \
-	gold = [(f.parent.name, len(pd.read_parquet(f))) for f in sorted(Path('data/gold').rglob('*.parquet'))]; \
-	print(f'Bronze files     : {bronze}'); \
-	print(f'Silver partitions: {silver}'); \
-	print('Gold tables:'); \
-	[print(f'  {n:30s} {r:>10,} rows') for n,r in gold]"
+	@uv run clm summary
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 

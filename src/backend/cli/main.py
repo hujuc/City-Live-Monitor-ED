@@ -5,11 +5,16 @@ Command-line interface for the City Live Monitor platform.
 """
 
 import time
+from io import StringIO
 from pathlib import Path
 
 import click
+import rich.box
 import uvicorn
 from loguru import logger
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from backend.ingestion.streaming import Noise311Poller, PermittedEventsPoller
 from backend.processing.batch import (
@@ -26,13 +31,108 @@ from backend.utils.logging import setup_logging
 from config.settings import Config
 
 
-@click.group()
+def _render_rich_help(command: click.Command, ctx: click.Context, show_commands: bool) -> str:
+    """Render Rich-formatted help output for a Click command or group."""
+    buffer = StringIO()
+    console = Console(file=buffer, force_terminal=True)
+
+    if command.help:
+        console.print(Panel(command.help, title="Description", border_style="cyan"))
+
+    usage_parts: list[str] = [ctx.command_path]
+    if isinstance(command, click.MultiCommand):
+        usage_parts.append("[OPTIONS] COMMAND [ARGS]...")
+    else:
+        usage_parts.extend(command.collect_usage_pieces(ctx))
+    usage = " ".join(str(part).strip() for part in usage_parts if str(part).strip())
+    console.print(Panel(f"[bold]Usage:[/bold] {usage}", border_style="blue"))
+
+    option_rows: list[tuple[str, str]] = []
+    arg_rows: list[tuple[str, str]] = []
+
+    for param in command.get_params(ctx):
+        if isinstance(param, click.Option):
+            names = ", ".join([*param.opts, *param.secondary_opts])
+            default = param.get_default(ctx)
+            default_str = ""
+            if param.show_default and default not in (None, (), []):
+                default_str = f" [default: {default}]"
+            detail = (param.help or "").strip()
+            detail = f"{detail}{default_str}".strip()
+            option_rows.append((names, detail or "-"))
+        elif isinstance(param, click.Argument):
+            required = "required" if param.required else "optional"
+            arg_rows.append((param.name.upper(), required))
+
+    def _make_table(col1: str, col2: str) -> Table:
+        t = Table(box=rich.box.SIMPLE_HEAD, show_header=True, show_edge=False, pad_edge=False)
+        t.add_column(col1, style="cyan bold", no_wrap=True)
+        t.add_column(col2, style="white")
+        return t
+
+    if arg_rows:
+        arg_table = _make_table("Argument", "Required?")
+        for name, details in arg_rows:
+            arg_table.add_row(name, details)
+        console.print()
+        console.print(
+            Panel(arg_table, title="[bold green]Arguments[/bold green]", border_style="green")
+        )
+
+    if option_rows:
+        opt_table = _make_table("Option", "Description")
+        for names, details in option_rows:
+            opt_table.add_row(names, details)
+        console.print()
+        console.print(
+            Panel(opt_table, title="[bold green]Options[/bold green]", border_style="green")
+        )
+
+    if show_commands and isinstance(command, click.MultiCommand):
+        command_rows: list[tuple[str, str]] = []
+        for cmd_name in command.list_commands(ctx):
+            sub = command.get_command(ctx, cmd_name)
+            if not sub:
+                continue
+            short_help = sub.get_short_help_str()
+            command_rows.append((cmd_name, short_help or "-"))
+
+        if command_rows:
+            cmd_table = _make_table("Command", "Description")
+            for name, desc in command_rows:
+                cmd_table.add_row(name, desc)
+            console.print()
+            console.print(
+                Panel(cmd_table, title="[bold green]Commands[/bold green]", border_style="green")
+            )
+
+    return buffer.getvalue()
+
+
+class RichCommand(click.Command):
+    """Click command with Rich-formatted help output."""
+
+    def get_help(self, ctx: click.Context) -> str:
+        return _render_rich_help(self, ctx, show_commands=False)
+
+
+class RichGroup(click.Group):
+    """Click group with Rich-formatted help output."""
+
+    command_class = RichCommand
+
+    def get_help(self, ctx: click.Context) -> str:
+        return _render_rich_help(self, ctx, show_commands=True)
+
+
+@click.group(cls=RichGroup)
 @click.option(
     "--log-level",
     default=Config.LOG_LEVEL,
     show_default=True,
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
 )
+@click.version_option(version="0.1.0")
 def cli(log_level: str) -> None:
     """City Live Monitor — data pipeline CLI."""
     setup_logging(log_level=log_level, log_file=Config.LOGS_DIR / "pipeline.log")
@@ -234,6 +334,109 @@ def report_processing() -> None:
     """Generate docs/processing-report.md from current pipeline artifacts."""
     output = generate_processing_report()
     logger.info("[cli] report-processing finished: {}", output)
+
+
+_TITLE_STYLE = "bold cyan"
+
+
+def _human_size(num_bytes: int) -> str:
+    """Format a byte count as a human-readable string."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if num_bytes < 1024:
+            return f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024  # type: ignore[assignment]
+    return f"{num_bytes:.1f} PB"
+
+
+def _dir_size_and_count(path: Path, pattern: str = "**/*") -> tuple[int, int]:
+    """Return (total_bytes, file_count) for a directory tree matching pattern."""
+    total = 0
+    count = 0
+    if not path.exists():
+        return 0, 0
+    for p in path.rglob(pattern):
+        if p.is_file():
+            total += p.stat().st_size
+            count += 1
+    return total, count
+
+
+@cli.command("summary")
+def summary() -> None:
+    """Show a snapshot of Bronze/Silver/Gold state — counts, rows, disk usage."""
+    import pandas as pd
+    from rich.console import Console
+
+    console = Console()
+
+    bronze_sources = {
+        "tlc": "TLC Yellow Taxi",
+        "nyc_permitted_events": "NYC Permitted Events",
+        "nyc_311_noise": "311 Noise Complaints",
+    }
+    bronze_table = Table(
+        title="Bronze Layer (raw)",
+        box=rich.box.SIMPLE_HEAD,
+        title_style=_TITLE_STYLE,
+    )
+    bronze_table.add_column("Source", style="cyan")
+    bronze_table.add_column("Files", justify="right")
+    bronze_table.add_column("Size", justify="right")
+    for key, label in bronze_sources.items():
+        size, files = _dir_size_and_count(Config.BRONZE_DIR / key)
+        bronze_table.add_row(label, f"{files:,}", _human_size(size) if files else "—")
+    console.print(bronze_table)
+
+    silver_table = Table(
+        title="Silver Layer (cleaned)",
+        box=rich.box.SIMPLE_HEAD,
+        title_style=_TITLE_STYLE,
+    )
+    silver_table.add_column("Source", style="cyan")
+    silver_table.add_column("Partitions", justify="right")
+    silver_table.add_column("Size", justify="right")
+    for key, label in {"tlc": "TLC", "events": "Events", "noise311": "311 Noise"}.items():
+        size, files = _dir_size_and_count(Config.SILVER_DIR / key, "*.parquet")
+        silver_table.add_row(label, f"{files:,}", _human_size(size) if files else "—")
+    console.print(silver_table)
+
+    gold_table = Table(
+        title="Gold Layer (analytics-ready)",
+        box=rich.box.SIMPLE_HEAD,
+        title_style=_TITLE_STYLE,
+    )
+    gold_table.add_column("Table", style="cyan")
+    gold_table.add_column("Rows", justify="right")
+    gold_table.add_column("Columns", justify="right")
+    gold_table.add_column("Size", justify="right")
+    gold_files = sorted(Config.GOLD_DIR.rglob("*.parquet")) if Config.GOLD_DIR.exists() else []
+    if not gold_files:
+        gold_table.add_row("—", "—", "—", "—")
+    for f in gold_files:
+        try:
+            df = pd.read_parquet(f)
+            gold_table.add_row(
+                f.parent.name, f"{len(df):,}", str(len(df.columns)), _human_size(f.stat().st_size)
+            )
+        except Exception as exc:
+            gold_table.add_row(f.parent.name, "error", "-", str(exc)[:30])
+    console.print(gold_table)
+
+    # Checkpoints — shows streaming pipeline state
+    checkpoints = (
+        list(Config.CHECKPOINTS_DIR.glob("*.txt")) if Config.CHECKPOINTS_DIR.exists() else []
+    )
+    if checkpoints:
+        cp_table = Table(
+            title="Streaming Checkpoints",
+            box=rich.box.SIMPLE_HEAD,
+            title_style=_TITLE_STYLE,
+        )
+        cp_table.add_column("File", style="cyan")
+        cp_table.add_column("Cursor")
+        for cp in checkpoints:
+            cp_table.add_row(cp.name, cp.read_text().strip())
+        console.print(cp_table)
 
 
 if __name__ == "__main__":
