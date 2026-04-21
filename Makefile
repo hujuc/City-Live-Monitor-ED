@@ -6,6 +6,7 @@ setup:
 	uv venv
 	uv pip install -e ".[dev]"
 	cp -n .env.example .env 2>/dev/null || true
+	cp -n infra/airflow_simple_auth_passwords.json.example infra/airflow_simple_auth_passwords.json 2>/dev/null || true
 
 # ── Quality ───────────────────────────────────────────────────────────────────
 
