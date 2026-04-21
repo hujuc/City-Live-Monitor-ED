@@ -21,7 +21,7 @@ class _AirflowStub:
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         pass
 
-    def __enter__(self) -> "_AirflowStub":
+    def __enter__(self) -> _AirflowStub:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
@@ -29,6 +29,7 @@ class _AirflowStub:
 
     def __rshift__(self, other):  # noqa: ANN001
         return other
+
 
 try:
     from airflow import DAG
@@ -67,24 +68,18 @@ with DAG(
         task_id="process_tlc_bronze_to_silver",
         bash_command=(
             "cd /opt/airflow/src && "
-            "python -m backend.cli.main batch-process-tlc --taxi-type yellow"
+            "python -m backend.cli.main silver-process-tlc --taxi-type yellow"
         ),
     )
 
     process_events = BashOperator(
         task_id="process_events_bronze_to_silver",
-        bash_command=(
-            "cd /opt/airflow/src && "
-            "python -m backend.cli.main silver-process-events"
-        ),
+        bash_command=("cd /opt/airflow/src && python -m backend.cli.main silver-process-events"),
     )
 
     process_noise = BashOperator(
         task_id="process_noise311_bronze_to_silver",
-        bash_command=(
-            "cd /opt/airflow/src && "
-            "python -m backend.cli.main silver-process-noise311"
-        ),
+        bash_command=("cd /opt/airflow/src && python -m backend.cli.main silver-process-noise311"),
     )
 
     build_gold = BashOperator(

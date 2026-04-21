@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates process-tlc-batch silver-process-events silver-process-noise311 gold-build report-data-profiling report-processing superset-up superset-bootstrap superset-export
+.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports docker-up docker-down docker-ps health clean clean-silver-gold demo-summary
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -62,8 +62,8 @@ stream-noise311: kafka-wait
 stream-aggregates: kafka-wait
 	uv run clm stream-aggregates --once --max-messages 500
 
-process-tlc-batch:
-	uv run clm batch-process-tlc --taxi-type yellow
+silver-process-tlc:
+	uv run clm silver-process-tlc --taxi-type yellow
 
 silver-process-events:
 	uv run clm silver-process-events
@@ -100,3 +100,58 @@ superset-bootstrap:
 superset-export:
 	docker compose exec superset superset export-dashboards -f /app/superset_home/assets.zip
 	docker compose cp superset:/app/superset_home/assets.zip infra/superset/assets.zip
+
+# ── Pipeline shortcuts ───────────────────────────────────────────────────────
+
+# One-shot streaming ingest of both Socrata sources (requires Kafka)
+ingest-streaming: stream-events stream-noise311
+
+# Build all Silver partitions from Bronze (TLC + events + noise311)
+silver-all: silver-process-tlc silver-process-events silver-process-noise311
+
+# Full Bronze → Silver → Gold rebuild
+pipeline: silver-all gold-build
+
+# Regenerate markdown reports
+reports: report-data-profiling report-processing
+
+# ── Docker orchestration ────────────────────────────────────────────────────
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-ps:
+	docker compose ps
+
+# ── Health + summary ────────────────────────────────────────────────────────
+
+health:
+	@printf "API       "; curl -sf http://localhost:8000/health  >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Superset  "; curl -sf http://localhost:8088/health  >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Airflow   "; curl -sf http://localhost:8080/api/v2/version >/dev/null && echo "OK" || echo "DOWN"
+	@printf "MinIO     "; curl -sf http://localhost:9000/minio/health/live >/dev/null && echo "OK" || echo "DOWN"
+
+summary:
+	@uv run python -c "\
+	from pathlib import Path; import pandas as pd; \
+	bronze = sum(1 for _ in Path('data/bronze').rglob('*') if _.is_file()); \
+	silver = sum(1 for _ in Path('data/silver').rglob('*.parquet')); \
+	gold = [(f.parent.name, len(pd.read_parquet(f))) for f in sorted(Path('data/gold').rglob('*.parquet'))]; \
+	print(f'Bronze files     : {bronze}'); \
+	print(f'Silver partitions: {silver}'); \
+	print('Gold tables:'); \
+	[print(f'  {n:30s} {r:>10,} rows') for n,r in gold]"
+
+# ── Cleanup ─────────────────────────────────────────────────────────────────
+
+clean:
+	rm -rf htmlcov .coverage .pytest_cache .ruff_cache
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# CAUTION: wipes Silver + Gold. Bronze is preserved (slow to re-ingest).
+clean-silver-gold:
+	rm -rf data/silver/* data/gold/*
+	@echo "Silver + Gold cleared. Run 'make pipeline' to rebuild."

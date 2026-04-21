@@ -95,6 +95,7 @@ def fetch_socrata_rows_paginated(
     limit: int,
     cursor: str | None = None,
     first_page_inclusive: bool = False,
+    max_pages: int | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Fetch all pages newer than cursor using timestamp keyset pagination.
 
@@ -165,6 +166,14 @@ def fetch_socrata_rows_paginated(
         # Full page: rows sharing last_ts may continue on the next page.
         # Use >= + $offset to avoid skipping them (keyset pagination on non-unique key).
         same_ts_offset = sum(1 for r in page if str(r.get(timestamp_field)) == last_ts_str)
+
+        if max_pages is not None and page_num >= max_pages:
+            logger.info(
+                "[streaming] Reached max_pages={} — stopping early, {} total so far",
+                max_pages,
+                len(all_rows),
+            )
+            break
 
     return all_rows, max_timestamp
 

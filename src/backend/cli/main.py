@@ -48,10 +48,11 @@ def api(host: str, port: int) -> None:
 
 @cli.command("stream-events")
 @click.option("--once/--daemon", default=True, show_default=True)
-def stream_events(once: bool) -> None:
+@click.option("--max-pages", type=int, default=None, help="Cap pagination for testing/demos")
+def stream_events(once: bool, max_pages: int | None) -> None:
     """Run Permitted Events poller one time or in continuous mode."""
     try:
-        poller = PermittedEventsPoller()
+        poller = PermittedEventsPoller(max_pages=max_pages)
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -70,10 +71,11 @@ def stream_events(once: bool) -> None:
 
 @cli.command("stream-noise311")
 @click.option("--once/--daemon", default=True, show_default=True)
-def stream_noise311(once: bool) -> None:
+@click.option("--max-pages", type=int, default=None, help="Cap pagination for testing/demos")
+def stream_noise311(once: bool, max_pages: int | None) -> None:
     """Run 311 Noise poller one time or in continuous mode."""
     try:
-        poller = Noise311Poller()
+        poller = Noise311Poller(max_pages=max_pages)
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -114,13 +116,13 @@ def stream_aggregates(once: bool, max_messages: int) -> None:
             stats["seen"],
             stats["rows_written"],
         )
-        time.sleep(5)
+        time.sleep(Config.STREAM_AGGREGATOR_DAEMON_SLEEP_SECONDS)
 
 
-@cli.command("batch-process-tlc")
+@cli.command("silver-process-tlc")
 @click.option("--taxi-type", default="yellow", show_default=True)
 @click.option("--max-files", type=int, default=None)
-def batch_process_tlc(taxi_type: str, max_files: int | None) -> None:
+def silver_process_tlc(taxi_type: str, max_files: int | None) -> None:
     """Process TLC Bronze parquet files into Silver partitions."""
     bronze_root = Config.BRONZE_DIR / "tlc" / taxi_type
     destination = Path(f"tlc/{taxi_type}")
@@ -132,7 +134,7 @@ def batch_process_tlc(taxi_type: str, max_files: int | None) -> None:
         max_files=max_files,
     )
     logger.info(
-        "[cli] batch-process-tlc finished: files={} rows_in={} rows_out={} dropped={}",
+        "[cli] silver-process-tlc finished: files={} rows_in={} rows_out={} dropped={}",
         stats.files_processed,
         stats.rows_read,
         stats.rows_written,

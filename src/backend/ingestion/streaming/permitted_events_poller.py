@@ -22,13 +22,18 @@ from config.settings import Config
 class PermittedEventsPoller(BaseIngester):
     """Polls Permitted Events endpoint and publishes normalized envelopes to Kafka."""
 
-    def __init__(self, producer: KafkaProducerLike | None = None) -> None:
+    def __init__(
+        self,
+        producer: KafkaProducerLike | None = None,
+        max_pages: int | None = None,
+    ) -> None:
         self._producer = producer or JsonKafkaProducer(Config.KAFKA_BOOTSTRAP_SERVERS)
         self._breaker = CircuitBreaker(
             max_failures=Config.STREAM_CIRCUIT_BREAKER_FAILURES,
             cooldown_seconds=Config.STREAM_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
         )
         self._checkpoint_file = Config.EVENTS_CHECKPOINT_FILE
+        self._max_pages = max_pages
 
     @property
     def source_name(self) -> str:
@@ -50,6 +55,7 @@ class PermittedEventsPoller(BaseIngester):
                 limit=Config.EVENTS_API_LIMIT,
                 cursor=checkpoint or Config.EVENTS_BACKFILL_START,
                 first_page_inclusive=checkpoint is None,
+                max_pages=self._max_pages,
             )
             self._breaker.on_success()
         except (RequestException, ValueError) as exc:
