@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from loguru import logger
 
+from backend.processing.batch.tlc_processor import BatchRunStats, TLCBatchProcessor
 from backend.storage.bronze import BronzeStorage
 from backend.storage.gold import GoldStorage
 from backend.storage.silver import SilverStorage
@@ -165,7 +167,39 @@ def generate_data_profiling_report(output_path: Path | None = None, sample_files
     return output
 
 
-def generate_processing_report(output_path: Path | None = None) -> Path:
+def _sample_tlc_filter_stats(bronze_tlc_files: list[Path], sample_files: int = 2) -> BatchRunStats:
+    """Run the TLC processor on a Bronze sample to capture per-rule filter stats."""
+    import tempfile
+
+    sample = bronze_tlc_files[:sample_files]
+    if not sample:
+        return BatchRunStats()
+
+    logger.info("[report] Sampling {} TLC Bronze file(s) for filter stats…", len(sample))
+    with tempfile.TemporaryDirectory() as tmp:
+        from backend.storage.silver import SilverStorage
+
+        tmp_silver = SilverStorage(root=Path(tmp) / "silver")
+        processor = TLCBatchProcessor(silver_storage=tmp_silver)
+        stats = BatchRunStats()
+        for src in sample:
+            try:
+                df = pd.read_parquet(src)
+                rows_before = len(df)
+                rows_after, breakdown = processor._process_df(df, src, Path("tlc/yellow"))
+                stats.rows_read += rows_before
+                stats.rows_written += rows_after
+                stats.rows_dropped += max(0, rows_before - rows_after)
+                stats.merge_filter_breakdown(breakdown)
+                stats.files_processed += 1
+            except Exception as exc:
+                logger.warning("[report] Skipping {} for filter stats: {}", src.name, exc)
+    return stats
+
+
+def generate_processing_report(
+    output_path: Path | None = None, sample_files_for_stats: int = 2
+) -> Path:
     """Generate a markdown processing report from current layer artifacts."""
     output = output_path or (Config.DOCS_DIR / "processing-report.md")
 
@@ -188,6 +222,8 @@ def generate_processing_report(output_path: Path | None = None) -> Path:
         Config.STREAM_AGGREGATOR_TABLE_NAME,
     ]
 
+    filter_stats = _sample_tlc_filter_stats(bronze_tlc_files, sample_files=sample_files_for_stats)
+
     lines = [
         "# Data Processing Report",
         "",
@@ -202,11 +238,34 @@ def generate_processing_report(output_path: Path | None = None) -> Path:
         f"- Bronze Noise snapshots: {len(bronze_noise_files)}",
         f"- Silver Noise partitions: {len(silver_noise_files)}",
         "",
+    ]
+
+    if filter_stats.rows_read > 0:
+        drop_pct = filter_stats.rows_dropped / filter_stats.rows_read * 100
+        lines.extend([
+            f"- Amostra para stats de filtragem: {filter_stats.files_processed} ficheiro(s) TLC Bronze",
+            f"- Rows lidas na amostra: {filter_stats.rows_read:,}",
+            f"- Rows escritas (Silver): {filter_stats.rows_written:,}",
+            f"- Rows descartadas: {filter_stats.rows_dropped:,} ({drop_pct:.2f}%)",
+            "",
+            "## Filtering Breakdown (amostra TLC)",
+            "",
+            "| Regra | Rows descartadas | % do total |",
+            "|-------|----------------:|----------:|",
+        ])
+        for rule_stat in filter_stats.filter_breakdown:
+            pct = rule_stat.rows_dropped / filter_stats.rows_read * 100 if filter_stats.rows_read else 0.0
+            lines.append(
+                f"| {rule_stat.rule} | {rule_stat.rows_dropped:,} | {pct:.2f}% |"
+            )
+        lines.append("")
+
+    lines.extend([
         "## Gold Tables",
         "",
         "| Table | Available | Rows |",
         "|---|---|---:|",
-    ]
+    ])
 
     for table in gold_tables:
         if gold.exists(table):
@@ -220,14 +279,17 @@ def generate_processing_report(output_path: Path | None = None) -> Path:
             "",
             "## Stream Processing Summary",
             "",
-            f"- Window size configured: {Config.STREAM_AGGREGATOR_WINDOW_MINUTES} minutes",
-            f"- Dedup & out-of-order handled by EventProcessor: yes",
-            f"- Aggregated metrics table: {Config.STREAM_AGGREGATOR_TABLE_NAME}",
+            f"- Window size configurada: {Config.STREAM_AGGREGATOR_WINDOW_MINUTES} minutos",
+            "- Dedup stateful + detecção out-of-order: implementado (`EventProcessor`)",
+            f"- Late event handling: watermark de {Config.STREAM_AGGREGATOR_WINDOW_MINUTES} min",
+            f"- Tabela de métricas agregadas: {Config.STREAM_AGGREGATOR_TABLE_NAME}",
             "",
             "## Notes",
             "",
-            "- Para métricas de throughput/latência em runtime, capturar também logs operacionais do pipeline.",
-            "- Este relatório é uma baseline automática para atualização antes da entrega final.",
+            "- O filtering breakdown acima é baseado numa amostra de Bronze; "
+            "para stats completas correr `make silver-process-tlc` e consultar logs.",
+            "- Para métricas de throughput/latência em runtime, correr `make stream-aggregates` "
+            "com Kafka activo e consultar a tabela `stream_metrics_5m`.",
             "",
         ]
     )

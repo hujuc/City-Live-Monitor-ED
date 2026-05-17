@@ -10,9 +10,11 @@ Features:
 """
 
 import argparse
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -65,6 +67,17 @@ class DownloadTask:
 # ---------------------------------------------------------------------------
 
 
+def _write_meta(parquet_path: Path) -> None:
+    """Write a .meta.json sidecar with ingestion timestamp alongside a Parquet file."""
+    meta = {
+        "_ingestion_timestamp": datetime.now(tz=UTC).isoformat(),
+        "source_file": parquet_path.name,
+        "size_bytes": parquet_path.stat().st_size,
+    }
+    meta_path = parquet_path.with_suffix(".meta.json")
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
 def _validate(path: Path) -> bool:
     if path.stat().st_size < MIN_FILE_BYTES:
         return False
@@ -104,6 +117,7 @@ def _download(task: DownloadTask) -> tuple[DownloadTask, bool, str]:
                 return task, False, "downloaded file failed validation"
 
             tmp.rename(dest)
+            _write_meta(dest)
             return task, True, f"downloaded ({dest.stat().st_size / 1e6:.1f} MB)"
 
         except requests.HTTPError as exc:

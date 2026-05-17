@@ -179,15 +179,21 @@ def fetch_socrata_rows_paginated(
 
 
 def write_ndjson_snapshot(root: Path, source: str, rows: list[dict[str, Any]]) -> Path:
-    """Persist raw API rows in Bronze as immutable NDJSON snapshots."""
+    """Persist raw API rows in Bronze as immutable NDJSON snapshots.
+
+    Each row gets an `_ingestion_timestamp` field (ISO-8601 UTC) so the Bronze
+    layer satisfies the validation requirement: all partitions have that field.
+    """
     now = datetime.now(tz=UTC)
+    ingestion_ts = now.isoformat()
     filename = f"snapshot_{now.strftime('%Y%m%dT%H%M%SZ')}.ndjson"
     destination = root / source / str(now.year) / f"{now.month:02d}" / filename
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     with destination.open("w", encoding="utf-8") as handle:
         for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False))
+            enriched = {**row, "_ingestion_timestamp": ingestion_ts}
+            handle.write(json.dumps(enriched, ensure_ascii=False))
             handle.write("\n")
 
     return destination

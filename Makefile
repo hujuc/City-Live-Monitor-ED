@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports docker-up docker-down docker-ps health clean clean-silver-gold demo-summary
+.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build gold-build-star-schema report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports docker-up docker-down docker-ps health clean clean-silver-gold demo-summary
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -75,11 +75,20 @@ silver-process-noise311:
 gold-build:
 	uv run clm gold-build-all
 
+gold-build-star-schema:
+	uv run clm gold-build-star-schema
+
 report-data-profiling:
 	uv run clm report-data-profiling --sample-files 3
 
 report-processing:
 	uv run clm report-processing
+
+backfill-bronze-meta:
+	uv run clm backfill-bronze-meta
+
+validate-bronze:
+	uv run clm validate-bronze
 
 superset-up:
 	@PORT=$${SUPERSET_PORT:-8088}; \

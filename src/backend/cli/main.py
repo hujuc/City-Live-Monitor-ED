@@ -20,6 +20,7 @@ from backend.ingestion.streaming import Noise311Poller, PermittedEventsPoller
 from backend.processing.batch import (
     GoldEventScheduleProcessor,
     GoldNoiseAggregationProcessor,
+    GoldStarSchemaProcessor,
     GoldTaxiDemandProcessor,
     Noise311SilverProcessor,
     PermittedEventsSilverProcessor,
@@ -27,6 +28,7 @@ from backend.processing.batch import (
 )
 from backend.processing.streaming import KafkaAggregateRunner
 from backend.reporting import generate_data_profiling_report, generate_processing_report
+from backend.utils.bronze_validator import BronzeValidator
 from backend.utils.logging import setup_logging
 from config.settings import Config
 
@@ -307,17 +309,33 @@ def gold_build_noise() -> None:
     logger.info("[cli] gold-build-noise finished: {} rows written", rows)
 
 
+@cli.command("gold-build-star-schema")
+def gold_build_star_schema() -> None:
+    """Build Gold star schema tables: dim_zone, dim_time, fact_taxi_demand."""
+    counts = GoldStarSchemaProcessor().build()
+    logger.info(
+        "[cli] gold-build-star-schema finished: dim_zone={} dim_time={} fact_taxi_demand={}",
+        counts.get("dim_zone", 0),
+        counts.get("dim_time", 0),
+        counts.get("fact_taxi_demand", 0),
+    )
+
+
 @cli.command("gold-build-all")
 def gold_build_all() -> None:
-    """Build all three Gold tables in sequence."""
+    """Build all Gold tables (flat aggregates + star schema) in sequence."""
     taxi_rows = GoldTaxiDemandProcessor().build()
     event_rows = GoldEventScheduleProcessor().build()
     noise_rows = GoldNoiseAggregationProcessor().build()
+    star_counts = GoldStarSchemaProcessor().build()
     logger.info(
-        "[cli] gold-build-all finished: taxi={} events={} noise={} rows",
+        "[cli] gold-build-all finished: taxi={} events={} noise={} dim_zone={} dim_time={} fact={}",
         taxi_rows,
         event_rows,
         noise_rows,
+        star_counts.get("dim_zone", 0),
+        star_counts.get("dim_time", 0),
+        star_counts.get("fact_taxi_demand", 0),
     )
 
 
@@ -334,6 +352,72 @@ def report_processing() -> None:
     """Generate docs/processing-report.md from current pipeline artifacts."""
     output = generate_processing_report()
     logger.info("[cli] report-processing finished: {}", output)
+
+
+@cli.command("backfill-bronze-meta")
+@click.option("--dry-run", is_flag=True, default=False, help="List files without writing")
+def backfill_bronze_meta(dry_run: bool) -> None:
+    """Create .meta.json sidecars for TLC Parquet files that don't have one yet."""
+    import json
+    from datetime import UTC, datetime
+
+    bronze_tlc = Config.BRONZE_DIR / "tlc"
+    files = sorted(bronze_tlc.rglob("*.parquet"))
+    created = 0
+    skipped = 0
+
+    for parquet_path in files:
+        meta_path = parquet_path.with_suffix(".meta.json")
+        if meta_path.exists():
+            skipped += 1
+            continue
+        # Use file mtime as proxy ingestion timestamp for pre-existing files
+        mtime = parquet_path.stat().st_mtime
+        ingestion_ts = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
+        meta = {
+            "_ingestion_timestamp": ingestion_ts,
+            "source_file": parquet_path.name,
+            "size_bytes": parquet_path.stat().st_size,
+            "_backfilled": True,
+        }
+        if dry_run:
+            logger.info("[backfill] would create {} (ts={})", meta_path.name, ingestion_ts)
+        else:
+            meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            logger.info("[backfill] created {}", meta_path.name)
+        created += 1
+
+    logger.info(
+        "[cli] backfill-bronze-meta: created={} skipped={} dry_run={}",
+        created,
+        skipped,
+        dry_run,
+    )
+
+
+@cli.command("validate-bronze")
+def validate_bronze() -> None:
+    """Validate Bronze layer: _ingestion_timestamp presence and schema consistency."""
+    validator = BronzeValidator()
+
+    results = [
+        validator.validate_parquet_source(Config.BRONZE_DIR / "tlc", "tlc"),
+        validator.validate_ndjson_source(Config.BRONZE_DIR / "nyc_permitted_events", "events"),
+        validator.validate_ndjson_source(Config.BRONZE_DIR / "nyc_311_noise", "noise311"),
+    ]
+
+    all_valid = all(r.is_valid for r in results)
+    total_issues = sum(
+        len(r.missing_timestamp_files) + len(r.schema_drift_files) for r in results
+    )
+    logger.info(
+        "[cli] validate-bronze finished: sources={} valid={} issues={}",
+        len(results),
+        all_valid,
+        total_issues,
+    )
+    if not all_valid:
+        raise SystemExit(1)
 
 
 _TITLE_STYLE = "bold cyan"

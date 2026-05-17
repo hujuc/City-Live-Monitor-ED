@@ -4,6 +4,7 @@ from backend.processing.batch.events_processor import PermittedEventsSilverProce
 from backend.processing.batch.gold import (
     GoldEventScheduleProcessor,
     GoldNoiseAggregationProcessor,
+    GoldStarSchemaProcessor,
     GoldTaxiDemandProcessor,
 )
 from backend.processing.batch.noise311_processor import Noise311SilverProcessor

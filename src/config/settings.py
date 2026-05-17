@@ -63,6 +63,17 @@ class Config:
         os.getenv("STREAM_AGGREGATOR_DAEMON_SLEEP_SECONDS", "5")
     )
 
+    # MinIO (S3-compatible lakehouse)
+    # Set MINIO_ENABLED=true only when running with Docker Compose (MinIO service up).
+    # Defaults to false so local/CI runs never attempt a network connection.
+    MINIO_ENABLED = os.getenv("MINIO_ENABLED", "false").lower() == "true"
+    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+    MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "minioadmin")
+    MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
+    MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+    MINIO_GOLD_BUCKET = os.getenv("MINIO_GOLD_BUCKET", "gold-layer")
+    MINIO_BRONZE_BUCKET = os.getenv("MINIO_BRONZE_BUCKET", "bronze-layer")
+
     # API server
     API_HOST = os.getenv("API_HOST", "0.0.0.0")
     API_PORT = int(os.getenv("API_PORT", "8000"))

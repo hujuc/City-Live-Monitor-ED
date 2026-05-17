@@ -7,12 +7,15 @@ Pipeline:
 1) Process TLC Bronze -> Silver
 2) Process Events Bronze -> Silver
 3) Process Noise311 Bronze -> Silver
-4) Build all Gold tables
+4) Build all Gold tables (writes to local FS + MinIO)
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
+
+_log = logging.getLogger("city-live-monitor.dag")
 
 
 class _AirflowStub:
@@ -38,11 +41,27 @@ except ImportError:  # pragma: no cover - airflow is available in the Airflow co
     DAG = _AirflowStub
     BashOperator = _AirflowStub
 
+
+def _on_failure(context: dict) -> None:  # type: ignore[type-arg]
+    ti = context.get("task_instance")
+    exc = context.get("exception")
+    dag_id = context.get("dag").dag_id if context.get("dag") else "unknown"
+    _log.error(
+        "[dag:%s] Task '%s' FAILED on run %s — %s: %s",
+        dag_id,
+        ti.task_id if ti else "?",
+        context.get("run_id", "?"),
+        type(exc).__name__ if exc else "unknown error",
+        exc,
+    )
+
+
 DEFAULT_ARGS = {
     "owner": "city-live-monitor",
     "depends_on_past": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
+    "on_failure_callback": _on_failure,
 }
 
 with DAG(
