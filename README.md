@@ -235,18 +235,6 @@ make lint          # ruff check + black format
 make typecheck     # pyright type checking
 ```
 
-### Environment variables
-
-Key settings in `.env` (all have sensible defaults):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MINIO_ENABLED` | `false` | Set `true` to mirror Gold to MinIO |
-| `SOCRATA_APP_TOKEN` | _(empty)_ | Optional — increases Socrata API rate limits |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `EVENTS_POLL_SECONDS` | `1800` | Events polling interval (seconds) |
-| `NOISE311_POLL_SECONDS` | `30` | 311 Noise polling interval (seconds) |
-
 ### Project structure
 
 ```
