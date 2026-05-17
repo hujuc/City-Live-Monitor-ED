@@ -87,6 +87,9 @@ report-processing:
 backfill-bronze-meta:
 	uv run clm backfill-bronze-meta
 
+backfill-ndjson-meta:
+	uv run clm backfill-ndjson-meta
+
 validate-bronze:
 	uv run clm validate-bronze
 

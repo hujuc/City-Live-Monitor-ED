@@ -395,6 +395,54 @@ def backfill_bronze_meta(dry_run: bool) -> None:
     )
 
 
+@cli.command("backfill-ndjson-meta")
+@click.option("--dry-run", is_flag=True, default=False, help="List files without modifying")
+def backfill_ndjson_meta(dry_run: bool) -> None:
+    """Inject _ingestion_timestamp into NDJSON rows that are missing it (uses file mtime)."""
+    import json
+    from datetime import UTC, datetime
+
+    sources = [
+        Config.BRONZE_DIR / "nyc_permitted_events",
+        Config.BRONZE_DIR / "nyc_311_noise",
+    ]
+    patched = 0
+    skipped = 0
+
+    for source_dir in sources:
+        for ndjson_path in sorted(source_dir.rglob("*.ndjson")):
+            # Check first row only to decide whether to process
+            with ndjson_path.open(encoding="utf-8") as fh:
+                first = next((json.loads(l) for l in fh if l.strip()), None)
+            if first is None or "_ingestion_timestamp" in first:
+                skipped += 1
+                continue
+
+            mtime = ndjson_path.stat().st_mtime
+            ingestion_ts = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
+
+            if dry_run:
+                logger.info("[backfill-ndjson] would patch {} (ts={})", ndjson_path.name, ingestion_ts)
+                patched += 1
+                continue
+
+            lines = ndjson_path.read_text(encoding="utf-8").splitlines()
+            patched_lines = []
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                row.setdefault("_ingestion_timestamp", ingestion_ts)
+                row["_backfilled"] = True
+                patched_lines.append(json.dumps(row, ensure_ascii=False))
+            ndjson_path.write_text("\n".join(patched_lines) + "\n", encoding="utf-8")
+            logger.info("[backfill-ndjson] patched {}", ndjson_path.name)
+            patched += 1
+
+    logger.info("[cli] c: patched={} skipped={} dry_run={}", patched, skipped, dry_run)
+
+
 @cli.command("validate-bronze")
 def validate_bronze() -> None:
     """Validate Bronze layer: _ingestion_timestamp presence and schema consistency."""
