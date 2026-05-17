@@ -13,6 +13,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Parallel downloads for multiple months
 - [x] Retry with exponential backoff for failed downloads
 - [x] Validate downloaded files (size, format, magic bytes)
+- [x] Write `.meta.json` sidecar with `_ingestion_timestamp` after each download
 
 ### 3.2 Streaming Data Ingestion
 
@@ -21,6 +22,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Exactly-once semantics (deterministic event IDs + dedup window)
 - [x] Circuit breaker for API failures
 - [x] Pagination for large backfills (>2000 rows per poll)
+- [x] Inject `_ingestion_timestamp` into every NDJSON row on write
 
 ### 3.3 Data Profiling
 
@@ -51,6 +53,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Data type casting (timestamps to UTC, coordinates to DECIMAL, money to DECIMAL)
 - [x] Standardization rules (borough names, zone names, payment types)
 - [x] Data quality filtering (remove invalid: zero distance, negative fare, bad coordinates, etc.)
+- [x] Per-rule filter stats tracked and logged (`FilterRuleStat`, `_apply_quality_filters`)
 - [x] Flag outliers (tip >50%, speed >80mph, unusual midnight-4am trips)
 - [x] Feature engineering (trip_duration_minutes, trip_speed_mph, hour_of_day, day_of_week, is_weekend, is_rush_hour, tip_percentage, cost_per_mile)
 - [x] Outlier detection (IQR/Z-score, cap trip_duration at 95th percentile)
@@ -69,11 +72,11 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 - [x] Airflow DAG for batch processing pipeline
 - [x] Schedule batch jobs appropriately
-- [ ] Monitor processing health
+- [x] Monitor processing health (`on_failure_callback` em todos os operadores do DAG)
 
 ### 4.4 Deliverables
 
-- [x] Processing Report (batch summary, filtering breakdown, stream processing summary, windowed aggregations, out-of-order analysis)
+- [-] Processing Report — filtering breakdown real implementado; stream metrics (throughput, latência, late %) requerem re-geração após Kafka run
 
 ---
 
@@ -84,7 +87,10 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Raw TLC Parquet files (Jan 2023 - Nov 2025)
 - [x] Raw Events/311 NDJSON snapshots
 - [x] Immutable, append-only storage
-- [ ] Validation: row counts match source, no schema drift, _ingestion_timestamp on all partitions
+- [x] `_ingestion_timestamp` em novas ingestões (NDJSON rows + `.meta.json` para Parquet)
+- [x] `_ingestion_timestamp` nos 33 ficheiros TLC já existentes (sidecars gerados retroativamente via `clm backfill-bronze-meta`)
+- [x] Schema drift detection (`BronzeValidator`)
+- [x] `make validate-bronze` / `clm validate-bronze` — valida as 3 fontes
 
 ### 5.2 Silver Layer
 
@@ -95,11 +101,13 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 5.3 Gold Layer
 
-- [-] Dimensional model (star schema) for batch data loaded into lakehouse (MinIO) — 3 aggregate tables built as Parquet, still on local FS not MinIO
 - [x] Taxi demand by zone x hour x day-of-week
-- [x] Event schedule with zone mapping (borough-level; lat/lon not available in source)
-- [x] Noise complaint aggregations by zone x hour (borough x complaint_type x descriptor x hour x day)
-- [x] Streaming: 5-minute rolling window metrics tables
+- [x] Event schedule with zone mapping (borough-level)
+- [x] Noise complaint aggregations (borough x complaint_type x descriptor x hour x day)
+- [x] Streaming: 5-minute rolling window metrics tables (`stream_metrics_5m`)
+- [x] Gold tables uploaded to MinIO (`GoldStorage.write()` com `MINIO_ENABLED=true`)
+- [x] Dimensional model (star schema formal) — dim_zone (265 rows), dim_time (168 rows), fact_taxi_demand (39198 rows)
+- [x] `stream_metrics_5m` populada com dados reais (256 rows via `clm stream-aggregates`)
 
 ### 5.4 Deliverables
 
@@ -110,10 +118,10 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 ## 6. Serving & Visualization
 
 - [x] 3 Superset dashboards, each with minimum 4 charts:
-  - [x] Dashboard 1: Late-night taxi heatmap (historical dropoff density by zone, filterable by hour/day)
-  - [x] Dashboard 2: Tonight's events map (active permitted events overlaid on taxi demand zones)
-  - [x] Dashboard 3: Live noise complaint feed (rolling 30-min complaint counts by borough)
-- [ ] Query combined batch + streaming outputs to show trends/correlations
+  - [x] Dashboard 1: Late-night taxi heatmap
+  - [x] Dashboard 2: Tonight's events map
+  - [x] Dashboard 3: Live noise complaint feed
+- [x] Query combined batch + streaming outputs — Dashboard 4: "Batch + Streaming Combined" (trips + events + noise by hour, streaming volume by source, quality table)
 
 ### 6.3 Deliverables
 
@@ -125,7 +133,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 - [ ] Code Repository: modular, documented, runnable, README.md with setup instructions
 - [ ] Architecture & Contracts: 1-page architecture diagram + data contracts per real-time source
-- [ ] Populated Storage: demonstrable Bronze, Silver, Gold tables (including star schema)
+- [x] Populated Storage: demonstrable Bronze, Silver, Gold tables — Gold também em MinIO
 - [ ] Dashboards: 3 working Superset dashboards combining batch + streaming metrics
 - [ ] Project Report: design decisions, trade-offs, failure modes, limitations
 - [ ] Final Presentation: demo of complete orchestrated system + challenges encountered

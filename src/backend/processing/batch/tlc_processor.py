@@ -1,6 +1,6 @@
 """Batch processing for NYC TLC trips (Bronze -> Silver)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -19,12 +19,30 @@ def _first_present(columns: list[str], candidates: list[str]) -> str | None:
 
 
 @dataclass
+class FilterRuleStat:
+    rule: str
+    rows_dropped: int
+
+
+@dataclass
 class BatchRunStats:
     files_seen: int = 0
     files_processed: int = 0
     rows_read: int = 0
     rows_written: int = 0
     rows_dropped: int = 0
+    filter_breakdown: list[FilterRuleStat] = field(default_factory=list)
+
+    def merge_filter_breakdown(self, other: list[FilterRuleStat]) -> None:
+        """Accumulate per-rule drop counts across files."""
+        existing = {s.rule: s for s in self.filter_breakdown}
+        for stat in other:
+            if stat.rule in existing:
+                existing[stat.rule].rows_dropped += stat.rows_dropped
+            else:
+                new_stat = FilterRuleStat(rule=stat.rule, rows_dropped=stat.rows_dropped)
+                self.filter_breakdown.append(new_stat)
+                existing[stat.rule] = new_stat
 
 
 class TLCBatchProcessor(BaseProcessor):
@@ -40,18 +58,21 @@ class TLCBatchProcessor(BaseProcessor):
     def process(self, source: Path, destination: Path) -> int:
         """Process one Bronze parquet file and write partitioned Silver parquet files."""
         df = pd.read_parquet(source)
-        return self._process_df(df, source, destination)
+        rows, _ = self._process_df(df, source, destination)
+        return rows
 
-    def _process_df(self, df: pd.DataFrame, source: Path, destination: Path) -> int:
+    def _process_df(
+        self, df: pd.DataFrame, source: Path, destination: Path
+    ) -> tuple[int, list[FilterRuleStat]]:
         """Transform a pre-loaded DataFrame and write Silver partitions."""
         if df.empty:
             logger.warning("[batch/tlc] Empty source file: {}", source)
-            return 0
+            return 0, []
 
-        cleaned = self._transform(df)
+        cleaned, breakdown = self._transform(df)
         if cleaned.empty:
             logger.warning("[batch/tlc] No valid rows after cleaning: {}", source)
-            return 0
+            return 0, breakdown
 
         source_tag = destination.as_posix().strip("/") or "tlc/yellow"
         stem = source.stem
@@ -63,7 +84,7 @@ class TLCBatchProcessor(BaseProcessor):
             payload = part.drop(columns=["partition_year", "partition_month"])
             self._silver.write(payload, source_tag, year_int, month_int, out_name)
 
-        return int(len(cleaned))
+        return int(len(cleaned)), breakdown
 
     def process_bronze_tree(
         self,
@@ -83,11 +104,12 @@ class TLCBatchProcessor(BaseProcessor):
             try:
                 df = pd.read_parquet(src)
                 rows_before = len(df)
-                rows_after = self._process_df(df, src, destination)
+                rows_after, breakdown = self._process_df(df, src, destination)
                 stats.files_processed += 1
                 stats.rows_read += rows_before
                 stats.rows_written += rows_after
                 stats.rows_dropped += max(0, rows_before - rows_after)
+                stats.merge_filter_breakdown(breakdown)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("[batch/tlc] Failed processing {}: {}", src, exc)
 
@@ -99,9 +121,22 @@ class TLCBatchProcessor(BaseProcessor):
             stats.rows_written,
             stats.rows_dropped,
         )
+        if stats.filter_breakdown:
+            for rule_stat in stats.filter_breakdown:
+                pct = (
+                    rule_stat.rows_dropped / stats.rows_read * 100 if stats.rows_read else 0.0
+                )
+                logger.info(
+                    "[batch/tlc] filter '{}': {:,} rows dropped ({:.2f}%)",
+                    rule_stat.rule,
+                    rule_stat.rows_dropped,
+                    pct,
+                )
         return stats
 
-    def _transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _transform(
+        self, df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, list[FilterRuleStat]]:
         """Apply typing, quality filters, and feature engineering rules."""
         data = df.copy()
 
@@ -116,7 +151,7 @@ class TLCBatchProcessor(BaseProcessor):
 
         if pickup_col is None or dropoff_col is None:
             logger.warning("[batch/tlc] Missing pickup/dropoff datetime columns")
-            return pd.DataFrame()
+            return pd.DataFrame(), []
 
         data["pickup_datetime_utc"] = pd.to_datetime(data[pickup_col], errors="coerce", utc=True)
         data["dropoff_datetime_utc"] = pd.to_datetime(data[dropoff_col], errors="coerce", utc=True)
@@ -132,39 +167,71 @@ class TLCBatchProcessor(BaseProcessor):
             if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors="coerce")
 
-        data = data.loc[self._build_quality_mask(data)].copy()
+        data, breakdown = self._apply_quality_filters(data)
         if data.empty:
-            return data
+            return data, breakdown
 
-        return self._add_features(data)
+        return self._add_features(data), breakdown
 
-    def _build_quality_mask(self, data: pd.DataFrame) -> pd.Series:
-        """Return a boolean mask of rows that pass all quality checks."""
-        mask = data["pickup_datetime_utc"].notna() & data["dropoff_datetime_utc"].notna()
+    def _apply_quality_filters(
+        self, data: pd.DataFrame
+    ) -> tuple[pd.DataFrame, list[FilterRuleStat]]:
+        """Apply each quality rule in sequence, tracking rows dropped per rule."""
+        breakdown: list[FilterRuleStat] = []
+        current = data
 
-        for col, op, threshold in [
-            ("trip_distance", "gt", 0),
-            ("fare_amount", "ge", 0),
-            ("tip_amount", "ge", 0),
-            ("total_amount", "ge", 0),
-            ("passenger_count", "ge", 1),
+        def _apply(label: str, mask: pd.Series) -> pd.DataFrame:
+            kept = current.loc[mask]
+            dropped = len(current) - len(kept)
+            if dropped:
+                breakdown.append(FilterRuleStat(rule=label, rows_dropped=dropped))
+            return kept
+
+        rules: list[tuple[str, pd.Series]] = [
+            (
+                "invalid_datetime",
+                current["pickup_datetime_utc"].notna() & current["dropoff_datetime_utc"].notna(),
+            ),
+        ]
+        for label, mask in rules:
+            current = _apply(label, mask)
+            if current.empty:
+                return current, breakdown
+
+        for col, op, threshold, label in [
+            ("trip_distance", "gt", 0, "zero_or_negative_distance"),
+            ("fare_amount", "ge", 0, "negative_fare"),
+            ("tip_amount", "ge", 0, "negative_tip"),
+            ("total_amount", "ge", 0, "negative_total"),
+            ("passenger_count", "ge", 1, "zero_or_missing_passengers"),
         ]:
-            if col in data.columns:
-                mask &= getattr(data[col], op)(threshold)
+            if col in current.columns:
+                mask = getattr(current[col], op)(threshold)
+                current = _apply(label, mask)
+                if current.empty:
+                    return current, breakdown
 
         duration_minutes = (
-            data["dropoff_datetime_utc"] - data["pickup_datetime_utc"]
+            current["dropoff_datetime_utc"] - current["pickup_datetime_utc"]
         ).dt.total_seconds() / 60.0
-        mask &= duration_minutes > 0
+        current = _apply("non_positive_duration", duration_minutes > 0)
+        if current.empty:
+            return current, breakdown
 
-        if {"pickup_latitude", "pickup_longitude"}.issubset(data.columns):
-            mask &= data["pickup_latitude"].between(-90, 90)
-            mask &= data["pickup_longitude"].between(-180, 180)
-        if {"dropoff_latitude", "dropoff_longitude"}.issubset(data.columns):
-            mask &= data["dropoff_latitude"].between(-90, 90)
-            mask &= data["dropoff_longitude"].between(-180, 180)
+        if {"pickup_latitude", "pickup_longitude"}.issubset(current.columns):
+            mask = (
+                current["pickup_latitude"].between(-90, 90)
+                & current["pickup_longitude"].between(-180, 180)
+            )
+            current = _apply("invalid_pickup_coords", mask)
+        if {"dropoff_latitude", "dropoff_longitude"}.issubset(current.columns):
+            mask = (
+                current["dropoff_latitude"].between(-90, 90)
+                & current["dropoff_longitude"].between(-180, 180)
+            )
+            current = _apply("invalid_dropoff_coords", mask)
 
-        return mask
+        return current, breakdown
 
     def _add_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add derived columns to an already-filtered DataFrame."""
