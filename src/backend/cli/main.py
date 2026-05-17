@@ -42,7 +42,7 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
         console.print(Panel(command.help, title="Description", border_style="cyan"))
 
     usage_parts: list[str] = [ctx.command_path]
-    if isinstance(command, click.MultiCommand):
+    if isinstance(command, click.MultiCommand): # type: ignore[arg-type]
         usage_parts.append("[OPTIONS] COMMAND [ARGS]...")
     else:
         usage_parts.extend(command.collect_usage_pieces(ctx))
@@ -64,7 +64,7 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
             option_rows.append((names, detail or "-"))
         elif isinstance(param, click.Argument):
             required = "required" if param.required else "optional"
-            arg_rows.append((param.name.upper(), required))
+            arg_rows.append(((param.name or "").upper(), required))
 
     def _make_table(col1: str, col2: str) -> Table:
         t = Table(box=rich.box.SIMPLE_HEAD, show_header=True, show_edge=False, pad_edge=False)
@@ -90,10 +90,10 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
             Panel(opt_table, title="[bold green]Options[/bold green]", border_style="green")
         )
 
-    if show_commands and isinstance(command, click.MultiCommand):
+    if show_commands and isinstance(command, click.MultiCommand): # type: ignore[arg-type]
         command_rows: list[tuple[str, str]] = []
-        for cmd_name in command.list_commands(ctx):
-            sub = command.get_command(ctx, cmd_name)
+        for cmd_name in command.list_commands(ctx): # type: ignore[arg-type]
+            sub = command.get_command(ctx, cmd_name) # type: ignore[arg-type]
             if not sub:
                 continue
             short_help = sub.get_short_help_str()
