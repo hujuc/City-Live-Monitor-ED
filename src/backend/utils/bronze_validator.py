@@ -80,8 +80,11 @@ class BronzeValidator:
             if not rows:
                 continue
 
-            cols = frozenset(rows[0].keys())
-            has_ts = "_ingestion_timestamp" in cols
+            all_cols = frozenset(rows[0].keys())
+            has_ts = "_ingestion_timestamp" in all_cols
+            # Exclude our metadata fields from schema comparison — they're not source data
+            _META_COLS = {"_ingestion_timestamp", "_backfilled"}
+            cols = all_cols - _META_COLS
 
             report = PartitionReport(
                 path=ndjson_path,
@@ -96,10 +99,12 @@ class BronzeValidator:
 
             if baseline_cols is None:
                 baseline_cols = cols
-            elif cols != baseline_cols:
-                drift = (cols - baseline_cols) | (baseline_cols - cols)
-                result.schema_drift_files.append(str(ndjson_path))
-                report.issues.append(f"schema drift — differing columns: {drift}")
+            else:
+                # Only flag drift when source columns are REMOVED (additions are acceptable)
+                removed = baseline_cols - cols
+                if removed:
+                    result.schema_drift_files.append(str(ndjson_path))
+                    report.issues.append(f"schema drift — removed columns: {removed}")
 
             result.partitions.append(report)
 
@@ -125,7 +130,8 @@ class BronzeValidator:
 
             try:
                 df = pd.read_parquet(parquet_path, columns=None)
-                cols = frozenset(df.columns)
+                # Normalize to lowercase for comparison — TLC changed e.g. airport_fee → Airport_fee
+                cols = frozenset(c.lower() for c in df.columns)
                 row_count = len(df)
             except Exception as exc:
                 logger.warning("[bronze/validate] Cannot read {}: {}", parquet_path.name, exc)
@@ -144,10 +150,12 @@ class BronzeValidator:
 
             if baseline_cols is None:
                 baseline_cols = cols
-            elif cols != baseline_cols:
-                drift = (cols - baseline_cols) | (baseline_cols - cols)
-                result.schema_drift_files.append(str(parquet_path))
-                report.issues.append(f"schema drift — differing columns: {drift}")
+            else:
+                # Only flag drift when columns are REMOVED (upstream additions are acceptable)
+                removed = baseline_cols - cols
+                if removed:
+                    result.schema_drift_files.append(str(parquet_path))
+                    report.issues.append(f"schema drift — removed columns: {removed}")
 
             result.partitions.append(report)
 

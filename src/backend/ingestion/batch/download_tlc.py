@@ -14,7 +14,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime as dt
 from pathlib import Path
 
 import requests
@@ -70,7 +70,7 @@ class DownloadTask:
 def _write_meta(parquet_path: Path) -> None:
     """Write a .meta.json sidecar with ingestion timestamp alongside a Parquet file."""
     meta = {
-        "_ingestion_timestamp": datetime.now(tz=UTC).isoformat(),
+        "_ingestion_timestamp": dt.now(tz=UTC).isoformat(),
         "source_file": parquet_path.name,
         "size_bytes": parquet_path.stat().st_size,
     }

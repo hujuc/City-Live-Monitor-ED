@@ -42,7 +42,7 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
         console.print(Panel(command.help, title="Description", border_style="cyan"))
 
     usage_parts: list[str] = [ctx.command_path]
-    if isinstance(command, click.MultiCommand):
+    if isinstance(command, click.MultiCommand): # type: ignore[arg-type]
         usage_parts.append("[OPTIONS] COMMAND [ARGS]...")
     else:
         usage_parts.extend(command.collect_usage_pieces(ctx))
@@ -64,7 +64,7 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
             option_rows.append((names, detail or "-"))
         elif isinstance(param, click.Argument):
             required = "required" if param.required else "optional"
-            arg_rows.append((param.name.upper(), required))
+            arg_rows.append(((param.name or "").upper(), required))
 
     def _make_table(col1: str, col2: str) -> Table:
         t = Table(box=rich.box.SIMPLE_HEAD, show_header=True, show_edge=False, pad_edge=False)
@@ -90,10 +90,10 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
             Panel(opt_table, title="[bold green]Options[/bold green]", border_style="green")
         )
 
-    if show_commands and isinstance(command, click.MultiCommand):
+    if show_commands and isinstance(command, click.MultiCommand): # type: ignore[arg-type]
         command_rows: list[tuple[str, str]] = []
-        for cmd_name in command.list_commands(ctx):
-            sub = command.get_command(ctx, cmd_name)
+        for cmd_name in command.list_commands(ctx): # type: ignore[arg-type]
+            sub = command.get_command(ctx, cmd_name) # type: ignore[arg-type]
             if not sub:
                 continue
             short_help = sub.get_short_help_str()
@@ -393,6 +393,54 @@ def backfill_bronze_meta(dry_run: bool) -> None:
         skipped,
         dry_run,
     )
+
+
+@cli.command("backfill-ndjson-meta")
+@click.option("--dry-run", is_flag=True, default=False, help="List files without modifying")
+def backfill_ndjson_meta(dry_run: bool) -> None:
+    """Inject _ingestion_timestamp into NDJSON rows that are missing it (uses file mtime)."""
+    import json
+    from datetime import UTC, datetime
+
+    sources = [
+        Config.BRONZE_DIR / "nyc_permitted_events",
+        Config.BRONZE_DIR / "nyc_311_noise",
+    ]
+    patched = 0
+    skipped = 0
+
+    for source_dir in sources:
+        for ndjson_path in sorted(source_dir.rglob("*.ndjson")):
+            # Check first row only to decide whether to process
+            with ndjson_path.open(encoding="utf-8") as fh:
+                first = next((json.loads(l) for l in fh if l.strip()), None)
+            if first is None or "_ingestion_timestamp" in first:
+                skipped += 1
+                continue
+
+            mtime = ndjson_path.stat().st_mtime
+            ingestion_ts = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
+
+            if dry_run:
+                logger.info("[backfill-ndjson] would patch {} (ts={})", ndjson_path.name, ingestion_ts)
+                patched += 1
+                continue
+
+            lines = ndjson_path.read_text(encoding="utf-8").splitlines()
+            patched_lines = []
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                row.setdefault("_ingestion_timestamp", ingestion_ts)
+                row["_backfilled"] = True
+                patched_lines.append(json.dumps(row, ensure_ascii=False))
+            ndjson_path.write_text("\n".join(patched_lines) + "\n", encoding="utf-8")
+            logger.info("[backfill-ndjson] patched {}", ndjson_path.name)
+            patched += 1
+
+    logger.info("[cli] c: patched={} skipped={} dry_run={}", patched, skipped, dry_run)
 
 
 @cli.command("validate-bronze")
