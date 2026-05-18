@@ -1,7 +1,7 @@
-# Storage Report — City Live Monitor
+# Storage Report: City Live Monitor
 
-**Authors:** Gabriel Silva · Hugo Castro — University of Aveiro, 2026  
-**Generated:** 2026-05-18  
+**Authors:** Gabriel Silva · Hugo Castro, University of Aveiro, 2026
+**Generated:** 2026-05-18
 **Architecture:** Bronze → Silver → Gold Medallion Lakehouse
 
 ---
@@ -37,7 +37,7 @@ The platform implements a three-layer medallion architecture over a local filesy
 | Parquet throughout Silver/Gold | Columnar format enables predicate push-down, column pruning, efficient compression |
 | NDJSON at Bronze for streaming | Human-readable, line-delimited, schema-flexible; matches Socrata API response shape |
 | `.meta.json` sidecars for TLC | Parquet files cannot be modified in-place; a companion JSON file carries ingestion metadata without touching raw data |
-| Append-only Bronze | Ensures reproducibility and audit traceability — every raw snapshot is permanently available |
+| Append-only Bronze | Ensures reproducibility and audit traceability; every raw snapshot is permanently available |
 | Column-removal-only schema drift | Upstream sources add fields over time (e.g., `airport_fee` added in 2022); only removed columns indicate a breaking change |
 
 ---
@@ -72,7 +72,7 @@ Every Bronze artefact carries `_ingestion_timestamp` (UTC ISO-8601):
 }
 ```
 
-### 2.3 TLC Yellow Taxi — Bronze Schema
+### 2.3 TLC Yellow Taxi Bronze Schema
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -82,23 +82,23 @@ Every Bronze artefact carries `_ingestion_timestamp` (UTC ISO-8601):
 | `passenger_count` | double | Nullable (driver-entered) |
 | `trip_distance` | double | Miles |
 | `RatecodeID` | double | 1=Standard, 2=JFK, 3=Newark, 4=Nassau, 5=Negotiated, 6=Group |
-| `store_and_fwd_flag` | string | Y/N — whether record stored locally before transmit |
+| `store_and_fwd_flag` | string | Y/N; whether record stored locally before transmit |
 | `PULocationID` | int64 | TLC Taxi Zone ID (1–265) |
 | `DOLocationID` | int64 | TLC Taxi Zone ID (1–265) |
 | `payment_type` | int64 | 1=Credit, 2=Cash, 3=No charge, 4=Dispute |
 | `fare_amount` | double | USD |
-| `extra` | double | USD — misc extras and surcharges |
+| `extra` | double | USD; misc extras and surcharges |
 | `mta_tax` | double | USD |
-| `tip_amount` | double | USD — auto-populated for credit card tips |
+| `tip_amount` | double | USD; auto-populated for credit card tips |
 | `tolls_amount` | double | USD |
 | `improvement_surcharge` | double | USD |
 | `total_amount` | double | USD |
-| `congestion_surcharge` | double | USD — added 2019 |
-| `airport_fee` | double | USD — added 2022; absent in older files |
+| `congestion_surcharge` | double | USD; added 2019 |
+| `airport_fee` | double | USD; added 2022; absent in older files |
 
 Schema note: `airport_fee` was added by TLC in mid-2022 and `Airport_fee` (capital A) appeared in some 2024 files. The Bronze Validator normalises column names to lowercase before schema-drift comparison so this does not trigger a false positive.
 
-### 2.4 NYC Permitted Events — Bronze Schema
+### 2.4 NYC Permitted Events Bronze Schema
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -114,10 +114,10 @@ Schema note: `airport_fee` was added by TLC in mid-2022 and `Airport_fee` (capit
 | `community_board` | string | |
 | `police_precinct` | string | |
 | `cemsid` | string | Internal city event ID |
-| `_ingestion_timestamp` | string | UTC ISO-8601 — injected on write |
+| `_ingestion_timestamp` | string | UTC ISO-8601; injected on write |
 | `_backfilled` | bool | True only for pre-feature snapshots |
 
-### 2.5 311 Noise Complaints — Bronze Schema
+### 2.5 311 Noise Complaints Bronze Schema
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -131,7 +131,7 @@ Schema note: `airport_fee` was added by TLC in mid-2022 and `Airport_fee` (capit
 | `latitude` | string | Nullable |
 | `longitude` | string | Nullable |
 | `location` | dict | GeoJSON point, nullable |
-| `_ingestion_timestamp` | string | UTC ISO-8601 — injected on write |
+| `_ingestion_timestamp` | string | UTC ISO-8601; injected on write |
 | `_backfilled` | bool | True only for pre-feature snapshots |
 | *(+ 18 address/administrative columns)* | | |
 
@@ -139,8 +139,8 @@ Schema note: `airport_fee` was added by TLC in mid-2022 and `Airport_fee` (capit
 
 The `BronzeValidator` (`src/backend/utils/bronze_validator.py`) checks all Bronze files on each `make validate-bronze` run:
 
-1. **Missing `_ingestion_timestamp`** — logged as a warning per file.
-2. **Schema drift** — only **column removals** are flagged as issues. Column additions are expected (upstream fields are added over time) and are silently accepted. This prevents false positives from TLC schema evolution.
+1. **Missing `_ingestion_timestamp`**: logged as a warning per file.
+2. **Schema drift**: only **column removals** are flagged as issues. Column additions are expected (upstream fields are added over time) and are silently accepted. This prevents false positives from TLC schema evolution.
 
 ---
 
@@ -155,19 +155,19 @@ The `BronzeValidator` (`src/backend/utils/bronze_validator.py`) checks all Bronz
 | 311 Noise | 8 Parquet | 42,376 | 5.1 MB | one file per snapshot batch |
 | **Total** | **192 files** | **~103.5 M** | **~4.8 GB** | |
 
-### 3.2 TLC Silver — Transformations Applied
+### 3.2 TLC Silver Transformations Applied
 
 | Category | Rule |
 |----------|------|
 | **Type casting** | `tpep_pickup_datetime` / `tpep_dropoff_datetime` → UTC-aware `datetime64[us, UTC]`; monetary columns → float64; zone IDs → int32 |
 | **Quality filters** | Zero-distance trips removed; negative fares removed; zero-passenger trips removed; invalid zone IDs (0, >265) removed; trip duration < 1 min or > 24 h removed; coordinates outside NYC bounds removed |
-| **Outlier flags** | `is_tip_outlier` (tip > 50% of fare); `is_speed_outlier` (> 80 mph); `is_unusual_midnight_trip` (midnight–4 am with > 3 passengers) |
-| **Outlier capping** | `trip_duration_capped_minutes` — duration capped at 95th percentile per month partition |
-| **Feature engineering** | `trip_duration_minutes`, `trip_speed_mph`, `hour_of_day`, `day_of_week`, `is_weekend`, `is_rush_hour` (7–10 am, 4–7 pm weekdays), `tip_percentage`, `cost_per_mile` |
+| **Outlier flags** | `is_tip_outlier` (tip > 50% of fare); `is_speed_outlier` (> 80 mph); `is_unusual_midnight_trip` (hour 0–4) |
+| **Outlier capping** | `trip_duration_capped_minutes`; duration capped at 95th percentile per month partition |
+| **Feature engineering** | `trip_duration_minutes`, `trip_speed_mph`, `hour_of_day`, `day_of_week`, `is_weekend`, `is_rush_hour` (hours 7–9 and 16–19, all days), `tip_percentage`, `cost_per_mile` |
 
 **Retention rate:** 103,383,051 / 123,897,542 = **83.4%** (16.6% of Bronze rows filtered by quality rules).
 
-### 3.3 TLC Silver — Schema
+### 3.3 TLC Silver Schema
 
 | Column | Type | Source / Derived |
 |--------|------|-----------------|
@@ -182,8 +182,8 @@ The `BronzeValidator` (`src/backend/utils/bronze_validator.py`) checks all Bronz
 | `DOLocationID` | int32 | Bronze (cast) |
 | `payment_type` | int64 | Bronze |
 | `fare_amount` – `airport_fee` | float64 | Bronze monetary columns |
-| `pickup_datetime_utc` | datetime64[us, UTC] | Derived — UTC-aware pickup |
-| `dropoff_datetime_utc` | datetime64[us, UTC] | Derived — UTC-aware dropoff |
+| `pickup_datetime_utc` | datetime64[us, UTC] | Derived; UTC-aware pickup |
+| `dropoff_datetime_utc` | datetime64[us, UTC] | Derived; UTC-aware dropoff |
 | `trip_duration_minutes` | float64 | Derived |
 | `trip_speed_mph` | float64 | Derived |
 | `hour_of_day` | int32 | Derived (0–23) |
@@ -198,18 +198,17 @@ The `BronzeValidator` (`src/backend/utils/bronze_validator.py`) checks all Bronz
 | `is_duration_outlier_iqr` | bool | Outlier flag |
 | `trip_duration_capped_minutes` | float64 | Outlier-capped version |
 
-### 3.4 Events Silver — Transformations Applied
+### 3.4 Events Silver Transformations Applied
 
 | Category | Rule |
 |----------|------|
 | **Type casting** | `start_date_time` / `end_date_time` → UTC-aware `datetime64[us, UTC]` |
-| **Deduplication** | Write-time dedup by `event_id` across all ingested snapshots — each event appears exactly once |
+| **Deduplication** | Write-time dedup by `event_id` across all ingested snapshots; each event appears exactly once |
 | **Feature engineering** | `event_duration_hours`, `borough` (normalised from `event_borough`) |
-| **Metadata removed** | `_ingestion_timestamp`, `_backfilled` stripped |
 
 **Dedup ratio:** 204,469 Bronze rows → 35,209 Silver rows. The Socrata API returns the full historical dataset on each poll; deduplication eliminates 82.8% of Bronze rows as cross-snapshot duplicates.
 
-### 3.5 Events Silver — Schema
+### 3.5 Events Silver Schema
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -223,7 +222,7 @@ The `BronzeValidator` (`src/backend/utils/bronze_validator.py`) checks all Bronz
 | `event_duration_hours` | float64 | Derived |
 | `event_agency`, `street_closure_type`, `community_board`, `police_precinct`, `cemsid` | str | Preserved from Bronze |
 
-### 3.6 Noise311 Silver — Transformations Applied
+### 3.6 Noise311 Silver Transformations Applied
 
 | Category | Rule |
 |----------|------|
@@ -234,7 +233,7 @@ The `BronzeValidator` (`src/backend/utils/bronze_validator.py`) checks all Bronz
 
 **Dedup ratio:** 100,131 Bronze rows → 42,376 Silver rows (57.7% cross-snapshot duplicates).
 
-### 3.7 Noise311 Silver — Added Columns
+### 3.7 Noise311 Silver Added Columns
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -367,13 +366,13 @@ The dimensional model enables OLAP-style queries over taxi demand data.
 
 **Rationale:** The star schema separates slowly-changing descriptive attributes (zone geography, time labels) from high-cardinality fact data. This allows dimension tables to be joined once and cached, reducing query cost for slice-and-dice operations in Superset.
 
-**dim_time design:** 168 rows = 24 hours × 7 days. All temporal combinations are pre-computed, so Superset charts can group by `period_label` (e.g., "Mon 08:00 — Rush Hour") without runtime string operations.
+**dim_time design:** 168 rows = 24 hours × 7 days. All temporal combinations are pre-computed, so Superset charts can group by `period_label` (e.g., "Mon 08:00: Rush Hour") without runtime string operations.
 
 ---
 
 ## 5. Lakehouse Implementation
 
-### 5.1 Query Engine — DuckDB
+### 5.1 Query Engine: DuckDB
 
 All Gold tables are exposed to Superset through DuckDB `read_parquet()` views defined in `infra/superset/init_gold_views.sql`:
 
@@ -428,7 +427,7 @@ Noise311      100,131         42,376         8,074 cells
 
 **TLC Silver retention:** 83.4% of Bronze rows pass quality filters. The 16.6% removed include zero-distance trips, invalid zone IDs, extreme durations, and data entry errors.
 
-**Streaming deduplication:** The Socrata API returns full historical datasets on each poll. The Silver layer deduplicates aggressively: Events retains 17.2% of Bronze rows; Noise311 retains 42.3%. This is expected — each snapshot is a complete snapshot of the source, not a delta.
+**Streaming deduplication:** The Socrata API returns full historical datasets on each poll. The Silver layer deduplicates aggressively: Events retains 17.2% of Bronze rows; Noise311 retains 42.3%. This is expected; each snapshot is a complete snapshot of the source, not a delta.
 
 ### 6.2 Temporal Consistency
 
@@ -458,7 +457,7 @@ All Gold tables are single Parquet files (< 2 MB each). DuckDB reads them in mil
 | `batch_streaming_combined` LEFT JOIN | < 50 ms | Two small files |
 | Silver TLC full scan (103M rows, 4.8 GB) | ~15–30 s | Not used in dashboards; Gold pre-aggregates |
 
-Silver TLC is never scanned at query time — all dashboard queries hit Gold tables exclusively. The 103M-row Silver layer is consumed once by the Gold processors to produce the 39,198-row `taxi_demand_by_zone` aggregate.
+Silver TLC is never scanned at query time; all dashboard queries hit Gold tables exclusively. The 103M-row Silver layer is consumed once by the Gold processors to produce the 39,198-row `taxi_demand_by_zone` aggregate.
 
 ---
 
