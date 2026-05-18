@@ -1,8 +1,8 @@
-# Project Report — City Live Monitor
+# Project Report - City Live Monitor
 
-**Course:** Engenharia de Dados (ED) — University of Aveiro, 2026  
-**Authors:** Gabriel Silva · Hugo Castro  
-**Date:** May 2026  
+**Course:** Engenharia de Dados (ED): University of Aveiro, 2026
+**Authors:** Gabriel Silva · Hugo Castro
+**Date:** May 2026
 
 ---
 
@@ -11,12 +11,12 @@
 1. [Introduction and Motivation](#1-introduction-and-motivation)
 2. [System Architecture](#2-system-architecture)
 3. [Ingestion Layer](#3-ingestion-layer)
-   - 3.1 Batch Ingestion — NYC TLC Yellow Taxi
-   - 3.2 Streaming Ingestion — Socrata APIs via Kafka
+   - 3.1 Batch Ingestion: NYC TLC Yellow Taxi
+   - 3.2 Streaming Ingestion: Socrata APIs via Kafka
 4. [Processing Layer](#4-processing-layer)
-   - 4.1 Batch Processing — TLC Bronze → Silver
-   - 4.2 Stream Processing — Kafka Consumer and Windowed Aggregations
-5. [Storage Layer — Medallion Architecture](#5-storage-layer--medallion-architecture)
+   - 4.1 Batch Processing: TLC Bronze → Silver
+   - 4.2 Stream Processing: Kafka Consumer and Windowed Aggregations
+5. [Storage Layer: Medallion Architecture](#5-storage-layer--medallion-architecture)
    - 5.1 Bronze Layer
    - 5.2 Silver Layer
    - 5.3 Gold Layer and Star Schema
@@ -33,16 +33,16 @@
 
 ## 1. Introduction and Motivation
 
-Urban analytics platforms face a fundamental tension: historical batch data is voluminous, well-structured, and amenable to rich analytical processing, while real-time event streams are sparse, noisy, and require low-latency handling. City Live Monitor was built to resolve this tension — combining three years of NYC Yellow Taxi trip records with live data from two real-time city APIs, then unifying them into a queryable analytical layer.
+Urban analytics platforms face a fundamental tension: historical batch data is voluminous, well-structured, and amenable to rich analytical processing, while real-time event streams are sparse, noisy, and require low-latency handling. City Live Monitor was built to resolve this tension by combining three years of NYC Yellow Taxi trip records with live data from two real-time city APIs, then unifying them into a queryable analytical layer.
 
 The platform answers questions such as:
 
-- **Where and when does taxi demand peak in NYC?** — using 103 million cleaned Silver trips aggregated by zone, hour, and day of the week.
-- **What city events coincide with high taxi demand?** — by joining the Gold event schedule against taxi demand hot-spots.
-- **How do 311 noise complaint patterns vary by borough and hour?** — using streamed complaint data aggregated into per-borough, per-type, per-hour cells.
-- **Is the streaming pipeline healthy?** — via 5-minute windowed metrics tracking late events, duplicates, and out-of-order arrivals.
+- **Where and when does taxi demand peak in NYC?**: using 103 million cleaned Silver trips aggregated by zone, hour, and day of the week.
+- **What city events coincide with high taxi demand?**: by joining the Gold event schedule against taxi demand hot-spots.
+- **How do 311 noise complaint patterns vary by borough and hour?**: using streamed complaint data aggregated into per-borough, per-type, per-hour cells.
+- **Is the streaming pipeline healthy?**: via 5-minute windowed metrics tracking late events, duplicates, and out-of-order arrivals.
 
-The choice of data sources was deliberate. TLC Yellow Taxi provides the richest structured dataset available for NYC — 35 monthly Parquet files spanning January 2023 to November 2025, each a faithful export of the taxi dispatch system with geospatial zone IDs, timestamps, fare breakdowns, and payment metadata. The streaming sources (Permitted Events and 311 Noise Complaints) are both available on the NYC Open Data Socrata platform and complement the taxi data: events create demand spikes, noise complaints reveal urban friction at the same hours taxis are most active.
+The choice of data sources was deliberate. TLC Yellow Taxi provides the richest structured dataset available for NYC: 35 monthly Parquet files spanning January 2023 to November 2025, each a faithful export of the taxi dispatch system with geospatial zone IDs, timestamps, fare breakdowns, and payment metadata. The streaming sources (Permitted Events and 311 Noise Complaints) are both available on the NYC Open Data Socrata platform and complement the taxi data: events create demand spikes, noise complaints reveal urban friction at the same hours taxis are most active.
 
 ---
 
@@ -88,17 +88,17 @@ The choice of data sources was deliberate. TLC Yellow Taxi provides the richest 
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-The architecture follows the **medallion pattern** — three successive layers of data quality (Bronze = raw, Silver = clean, Gold = analytical). This pattern was chosen because it provides a clear audit trail (Bronze is immutable and always preserves the original data), separates concerns (cleaning lives in Silver processors, aggregation in Gold processors), and makes re-processing safe and idempotent.
+The architecture follows the **medallion pattern**: three successive layers of data quality (Bronze = raw, Silver = clean, Gold = analytical). This pattern was chosen because it provides a clear audit trail (Bronze is immutable and always preserves the original data), separates concerns (cleaning lives in Silver processors, aggregation in Gold processors), and makes re-processing safe and idempotent.
 
 ---
 
 ## 3. Ingestion Layer
 
-### 3.1 Batch Ingestion — NYC TLC Yellow Taxi
+### 3.1 Batch Ingestion - NYC TLC Yellow Taxi
 
 The TLC dataset is distributed as monthly Parquet files from a CloudFront CDN. The ingester (`src/backend/ingestion/batch/download_tlc.py`) implements four production-grade features that together make the ingestion process robust for the full 35-file dataset:
 
-**Incremental download** — files that already exist on disk and pass validation are skipped. This avoids re-downloading 2 GB of data on restarts:
+**Incremental download**: files that already exist on disk and pass validation are skipped. This avoids re-downloading 2 GB of data on restarts:
 
 ```python
 def _download(task: DownloadTask) -> tuple[DownloadTask, bool, str]:
@@ -111,7 +111,7 @@ def _download(task: DownloadTask) -> tuple[DownloadTask, bool, str]:
         dest.unlink()   # corrupted file — force re-download
 ```
 
-**Atomic writes via `.tmp` rename** — the file is written to `<name>.tmp` first, then renamed to its final path only after validation passes. This prevents partially-downloaded files from being treated as complete:
+**Atomic writes via `.tmp` rename**: the file is written to `<name>.tmp` first, then renamed to its final path only after validation passes. This prevents partially-downloaded files from being treated as complete:
 
 ```python
 with open(tmp, "wb") as f:
@@ -124,7 +124,7 @@ tmp.rename(dest)      # atomic on POSIX
 _write_meta(dest)     # write .meta.json sidecar after rename
 ```
 
-**Validation** — each file is checked for minimum size (100 KB) and the Parquet magic bytes (`PAR1`) at the start of the file:
+**Validation**: each file is checked for minimum size (100 KB) and the Parquet magic bytes (`PAR1`) at the start of the file:
 
 ```python
 def _validate(path: Path) -> bool:
@@ -134,7 +134,7 @@ def _validate(path: Path) -> bool:
         return f.read(4) == b"PAR1"
 ```
 
-**Parallel downloads with retry and exponential backoff** — up to 4 threads download concurrently; each thread retries up to 5 times with delays of 2s, 4s, 8s, 16s, 32s:
+**Parallel downloads with retry and exponential backoff**: up to 4 threads download concurrently; each thread retries up to 5 times with delays of 2s, 4s, 8s, 16s, 32s:
 
 ```python
 MAX_WORKERS = 4
@@ -149,7 +149,7 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         ...
 ```
 
-**Ingestion timestamp** — every Parquet file is accompanied by a `.meta.json` sidecar written at download time. Because Parquet is a binary format that cannot be modified without rewriting, the sidecar is the appropriate carrier for ingestion metadata:
+**Ingestion timestamp**: every Parquet file is accompanied by a `.meta.json` sidecar written at download time. Because Parquet is a binary format that cannot be modified without rewriting, the sidecar is the appropriate carrier for ingestion metadata:
 
 ```json
 {
@@ -159,15 +159,15 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
 }
 ```
 
-### 3.2 Streaming Ingestion — Socrata APIs via Kafka
+### 3.2 Streaming Ingestion - Socrata APIs via Kafka
 
-Both streaming sources are polled from the NYC Open Data Socrata platform. The polling architecture is shared — both pollers inherit from `BaseIngester` and use the same `fetch_socrata_rows_paginated` helper from `src/backend/ingestion/streaming/common.py`.
+Both streaming sources are polled from the NYC Open Data Socrata platform. The polling architecture is shared: both pollers inherit from `BaseIngester` and use the same `fetch_socrata_rows_paginated` helper from `src/backend/ingestion/streaming/common.py`.
 
 **Polling intervals:**
 - **311 Noise Complaints** (`erm2-nwe9.json`): every 30 seconds. Noise complaints are time-sensitive and can resolve quickly; frequent polling reduces latency.
 - **Permitted Events** (`tvpp-9vvx.json`): every 30 minutes. Event permits are applied weeks in advance; sub-minute polling would waste API quota.
 
-**Incremental polling with checkpoints** — rather than fetching the full dataset on every poll, each poller maintains a cursor (the latest `created_date` / `start_date_time` seen) in a local checkpoint file. The Socrata SoQL query uses this cursor as a `WHERE timestamp > cursor` filter:
+**Incremental polling with checkpoints**: rather than fetching the full dataset on every poll, each poller maintains a cursor (the latest `created_date` / `start_date_time` seen) in a local checkpoint file. The Socrata SoQL query uses this cursor as a `WHERE timestamp > cursor` filter:
 
 ```python
 # data/checkpoints/noise311_created_date.txt contains the last seen ISO timestamp
@@ -185,9 +185,9 @@ if publish_errors == 0 and max_created_date:
     self._write_checkpoint(max_created_date)   # advance cursor only on success
 ```
 
-The checkpoint is only advanced when all Kafka publishes succeed. This gives at-least-once delivery semantics — on a partial failure, the cursor stays at the last safe position and duplicate rows will be re-fetched and deduplicated at the Silver layer.
+The checkpoint is only advanced when all Kafka publishes succeed. This gives at-least-once delivery semantics: on a partial failure, the cursor stays at the last safe position and duplicate rows will be re-fetched and deduplicated at the Silver layer.
 
-**Pagination** — Socrata responses are limited to 2,000 rows per request. For backfill scenarios (e.g., the first poll ever, which may have years of history), the helper fetches additional pages until no more rows are returned:
+**Pagination**: Socrata responses are limited to 2,000 rows per request. For backfill scenarios (e.g., the first poll ever, which may have years of history), the helper fetches additional pages until no more rows are returned:
 
 ```python
 def fetch_socrata_rows_paginated(...) -> tuple[list[dict], str | None]:
@@ -203,7 +203,7 @@ def fetch_socrata_rows_paginated(...) -> tuple[list[dict], str | None]:
     return all_rows, max_timestamp(all_rows, timestamp_field)
 ```
 
-**Circuit breaker** — a consecutive-failure circuit breaker prevents the poller from hammering a temporarily unavailable API. After `max_failures` (default: 5) consecutive failures, the breaker opens for `cooldown_seconds` (default: 120s):
+**Circuit breaker**: a consecutive-failure circuit breaker prevents the poller from hammering a temporarily unavailable API. After `max_failures` (default: 5) consecutive failures, the breaker opens for `cooldown_seconds` (default: 120s):
 
 ```python
 @dataclass
@@ -222,7 +222,7 @@ class CircuitBreaker:
         return False   # breaker open — skip this cycle
 ```
 
-**Kafka publishing** — normalised events are published to topic `events.raw` or `noise311.raw`. Malformed events (missing required fields, invalid timestamps) are routed to dead-letter queues (`events.dlq`, `noise311.dlq`) rather than silently dropped, allowing inspection and replay:
+**Kafka publishing**: normalised events are published to topic `events.raw` or `noise311.raw`. Malformed events (missing required fields, invalid timestamps) are routed to dead-letter queues (`events.dlq`, `noise311.dlq`) rather than silently dropped, allowing inspection and replay:
 
 ```python
 envelope = self._normalize(row)
@@ -237,7 +237,7 @@ self._producer.send(
 )
 ```
 
-**Deterministic event IDs** — every event published to Kafka has a stable `event_id` derived from a SHA-256 hash of its key fields. This enables exactly-once semantics when the same event is re-ingested across polling cycles:
+**Deterministic event IDs**: every event published to Kafka has a stable `event_id` derived from a SHA-256 hash of its key fields. This enables idempotent deduplication when the same event is re-ingested across polling cycles:
 
 ```python
 def make_event_id(source: str, row: dict, preferred_fields: list[str]) -> str:
@@ -249,7 +249,7 @@ def make_event_id(source: str, row: dict, preferred_fields: list[str]) -> str:
     return hashlib.sha256(fingerprint.encode()).hexdigest()[:32]
 ```
 
-**Bronze persistence** — before publishing to Kafka, each poll writes a full NDJSON snapshot to the Bronze layer. This snapshot is independent of the Kafka pipeline and provides a permanent audit trail even if Kafka topics are purged:
+**Bronze persistence**: before publishing to Kafka, each poll writes a full NDJSON snapshot to the Bronze layer. This snapshot is independent of the Kafka pipeline and provides a permanent audit trail even if Kafka topics are purged:
 
 ```python
 snapshot_path = write_ndjson_snapshot(bronze_root, self.source_name, rows)
@@ -262,7 +262,7 @@ Each NDJSON row includes `_ingestion_timestamp` injected at write time, satisfyi
 
 ## 4. Processing Layer
 
-### 4.1 Batch Processing — TLC Bronze → Silver
+### 4.1 Batch Processing - TLC Bronze → Silver
 
 The `TLCBatchProcessor` (`src/backend/processing/batch/tlc_processor.py`) transforms raw TLC Parquet files into cleaned, typed, feature-rich Silver partitions. The pipeline is structured in three sequential stages: type casting, quality filtering, and feature engineering.
 
@@ -281,7 +281,7 @@ for col in ["trip_distance", "fare_amount", "tip_amount", "total_amount", "passe
         data[col] = pd.to_numeric(data[col], errors="coerce")
 ```
 
-**Quality filtering** applies eight rules in sequence, each tracked independently via `FilterRuleStat`. The per-rule tracking makes it possible to measure exactly what is being removed and why — essential for justifying the 16.6% drop rate:
+**Quality filtering** applies eight rules in sequence, each tracked independently via `FilterRuleStat`. The per-rule tracking makes it possible to measure exactly what is being removed and why: essential for justifying the 16.6% drop rate:
 
 | Filter rule | Condition |
 |-------------|-----------|
@@ -310,9 +310,7 @@ def _apply(label: str, mask: pd.Series) -> pd.DataFrame:
 data["hour_of_day"]  = data["pickup_datetime_utc"].dt.hour          # 0–23
 data["day_of_week"]  = data["pickup_datetime_utc"].dt.dayofweek     # 0=Monday
 data["is_weekend"]   = data["day_of_week"] >= 5
-data["is_rush_hour"] = (
-    data["hour_of_day"].isin(range(7, 10)) | data["hour_of_day"].isin(range(16, 20))
-) & ~data["is_weekend"]
+data["is_rush_hour"] = data["hour_of_day"].isin([7, 8, 9, 16, 17, 18, 19])
 
 # Economic features
 data["tip_percentage"] = (data["tip_amount"] / data["fare_amount"].replace(0, float("nan"))) * 100
@@ -321,9 +319,7 @@ data["cost_per_mile"]  = data["total_amount"] / data["trip_distance"].replace(0,
 # Outlier flags (not filters — preserved for downstream use)
 data["is_tip_outlier"]      = data["tip_percentage"] > 50
 data["is_speed_outlier"]    = data["trip_speed_mph"] > 80
-data["is_unusual_midnight_trip"] = (
-    data["hour_of_day"].between(0, 4) & (data["passenger_count"] > 3)
-)
+data["is_unusual_midnight_trip"] = data["hour_of_day"].between(0, 4)
 
 # Duration capping at 95th percentile (IQR-sensitive)
 p95 = data["trip_duration_minutes"].quantile(0.95)
@@ -332,7 +328,7 @@ data["trip_duration_capped_minutes"] = data["trip_duration_minutes"].clip(upper=
 
 Outlier rows are **flagged, not filtered**. This is an intentional design decision: a tip that is 60% of the fare is unusual but not erroneous. Downstream analysts can choose to exclude outlier-flagged rows for their specific analysis without losing the raw record.
 
-**Output partitioning** — Silver TLC files are written to Hive-style partitions (`year=YYYY/month=MM/`), enabling predicate push-down when DuckDB reads them:
+**Output partitioning**: Silver TLC files are written to Hive-style partitions (`year=YYYY/month=MM/`), enabling predicate push-down when DuckDB reads them:
 
 ```python
 for (year, month), part in cleaned.groupby(["partition_year", "partition_month"]):
@@ -341,11 +337,11 @@ for (year, month), part in cleaned.groupby(["partition_year", "partition_month"]
     # writes to data/silver/tlc/yellow/year=2023/month=01/yellow_tripdata_2023-01_silver.parquet
 ```
 
-### 4.2 Stream Processing — Kafka Consumer and Windowed Aggregations
+### 4.2 Stream Processing - Kafka Consumer and Windowed Aggregations
 
-The `EventProcessor` (`src/backend/processing/streaming/event_processor.py`) is the core stateful stream-processing component. It is designed as a push-based processor — the Kafka consumer loop calls `process_event()` for each message; the processor maintains state in memory.
+The `EventProcessor` (`src/backend/processing/streaming/event_processor.py`) is the core stateful stream-processing component. It is designed as a push-based processor: the Kafka consumer loop calls `process_event()` for each message; the processor maintains state in memory.
 
-**Envelope parsing and validation** — each Kafka message is expected to have a well-defined envelope structure produced by the pollers (event_id, source, timestamp, payload). Messages that deviate from this structure are rejected before any state is updated:
+**Envelope parsing and validation**: each Kafka message is expected to have a well-defined envelope structure produced by the pollers (event_id, source, timestamp, payload). Messages that deviate from this structure are rejected before any state is updated:
 
 ```python
 def process_event(self, raw: dict) -> EventEnvelope | None:
@@ -362,7 +358,7 @@ def process_event(self, raw: dict) -> EventEnvelope | None:
     return envelope
 ```
 
-**Deduplication within a sliding window** — the processor maintains a dictionary of seen event IDs mapped to their arrival time. IDs older than the dedup window (default: 10 minutes) are expired to prevent unbounded memory growth:
+**Deduplication within a sliding window**: the processor maintains a dictionary of seen event IDs mapped to their arrival time. IDs older than the dedup window (default: 10 minutes) are expired to prevent unbounded memory growth:
 
 ```python
 def _is_duplicate(self, envelope: EventEnvelope) -> bool:
@@ -375,7 +371,7 @@ def _is_duplicate(self, envelope: EventEnvelope) -> bool:
     return envelope.event_id in self._seen_ids
 ```
 
-**Watermarking and late event detection** — an event is "late" if the gap between its event timestamp and its arrival time exceeds the watermark delay (5 minutes). This detects events that were delayed in the Kafka pipeline or arrived from a backfill:
+**Watermarking and late event detection**: an event is "late" if the gap between its event timestamp and its arrival time exceeds the watermark delay (5 minutes). This detects events that were delayed in the Kafka pipeline or arrived from a backfill:
 
 ```python
 @property
@@ -383,7 +379,7 @@ def is_late(self, watermark_delay: timedelta = timedelta(minutes=5)) -> bool:
     return self.received_at - self.timestamp > watermark_delay
 ```
 
-**Tumbling window aggregations** — metrics are grouped into 5-minute tumbling windows keyed by `(window_start, source, subject)`. Each window accumulates event counts, late counts, duplicate counts, and out-of-order counts:
+**Tumbling window aggregations**: metrics are grouped into 5-minute tumbling windows keyed by `(window_start, source, subject)`. Each window accumulates event counts, late counts, duplicate counts, and out-of-order counts:
 
 ```python
 def _record_metric(self, envelope: EventEnvelope, *, late=False,
@@ -408,14 +404,14 @@ The `KafkaAggregateRunner` wraps the `EventProcessor` in a Kafka consumer loop, 
 
 ---
 
-## 5. Storage Layer — Medallion Architecture
+## 5. Storage Layer - Medallion Architecture
 
 ### 5.1 Bronze Layer
 
 The Bronze layer is the system's source of truth. Every raw record ingested into the platform lives here permanently, unchanged. Two formats are used:
 
-- **Parquet** for TLC data — the format in which TLC publishes files. No conversion is performed; files are stored exactly as downloaded.
-- **NDJSON** for streaming data — one line per JSON record, one file per polling snapshot. NDJSON is human-readable, schema-flexible, and easy to inspect without tooling.
+- **Parquet** for TLC data: the format in which TLC publishes files. No conversion is performed; files are stored exactly as downloaded.
+- **NDJSON** for streaming data: one line per JSON record, one file per polling snapshot. NDJSON is human-readable, schema-flexible, and easy to inspect without tooling.
 
 The sole transformation applied at Bronze ingestion is the injection of `_ingestion_timestamp`. For Parquet files (which are immutable binary formats), this is stored in a companion `.meta.json` sidecar rather than the file itself.
 
@@ -429,7 +425,7 @@ The sole transformation applied at Bronze ingestion is the injection of `_ingest
 
 ### 5.2 Silver Layer
 
-Silver applies the full transformation pipeline to Bronze data. The key property of Silver is that it preserves the original schema (no columns are removed, only added) while guaranteeing data quality — every row in Silver has passed all quality filters and has correct types.
+Silver applies the full transformation pipeline to Bronze data. The key property of Silver is that it preserves the original schema (no columns are removed, only added) while guaranteeing data quality: every row in Silver has passed all quality filters and has correct types.
 
 **TLC transformation summary:**
 - 123,897,542 Bronze rows → 103,383,051 Silver rows (83.4% retention)
@@ -453,9 +449,9 @@ Gold tables are analytics-ready Parquet files consumed directly by Superset and 
 
 The most significant design decision in the Gold layer is the dual representation of taxi demand:
 
-1. **`taxi_demand_by_zone`** — a denormalised flat table containing all measures alongside their context attributes (borough name, zone name, is_weekend, etc.). Optimised for direct dashboard queries without joins.
+1. **`taxi_demand_by_zone`**: a denormalised flat table containing all measures alongside their context attributes (borough name, zone name, is_weekend, etc.). Optimised for direct dashboard queries without joins.
 
-2. **Star schema (`dim_zone`, `dim_time`, `fact_taxi_demand`)** — a formal dimensional model enabling proper OLAP-style slice-and-dice queries. `dim_time` pre-computes all 168 hour×day combinations with human-readable labels, so charts can group by `period_label` without runtime string computation.
+2. **Star schema (`dim_zone`, `dim_time`, `fact_taxi_demand`)**: a formal dimensional model enabling proper OLAP-style slice-and-dice queries. `dim_time` pre-computes all 168 hour×day combinations with human-readable labels, so charts can group by `period_label` without runtime string computation.
 
 ```
 dim_zone (265 rows)              dim_time (168 rows)
@@ -493,12 +489,12 @@ class GoldStarSchemaProcessor:
         self._gold.write(dim_zone, "dim_zone")
         self._gold.write(dim_time, "dim_time")
         self._gold.write(fact, "fact_taxi_demand")
-        return {"dim_zone": 265, "dim_time": 168, "fact_taxi_demand": 39198}
+        return {"dim_zone": len(dim_zone), "dim_time": len(dim_time), "fact_taxi_demand": len(fact)}
 ```
 
 ### 5.4 Lakehouse with DuckDB and MinIO
 
-**DuckDB as the query engine** — rather than loading Gold Parquet files into a persistent database, DuckDB reads them directly at query time via `read_parquet()` views. This eliminates an ETL step and means Superset always queries the current state of the Gold layer:
+**DuckDB as the query engine**: rather than loading Gold Parquet files into a persistent database, DuckDB reads them directly at query time via `read_parquet()` views. This eliminates an ETL step and means Superset always queries the current state of the Gold layer:
 
 ```sql
 -- infra/superset/init_gold_views.sql
@@ -517,18 +513,18 @@ CREATE OR REPLACE VIEW batch_streaming_combined AS
     GROUP BY t.hour_of_day;
 ```
 
-**MinIO as an optional S3 mirror** — when `MINIO_ENABLED=true`, every `GoldStorage.write()` call mirrors the Parquet file to `s3://gold-layer/<table_name>/`. This enables access by S3-compatible tools without changing the local query path. The default is `false` so local runs and CI never attempt a network connection:
+**MinIO as an optional S3 mirror**: when `MINIO_ENABLED=true`, every `GoldStorage.write()` call mirrors the Parquet file to `s3://gold-layer/<table_name>/`. This enables access by S3-compatible tools without changing the local query path. The default is `false` so local runs and CI never attempt a network connection:
 
 ```python
 # src/config/settings.py
 MINIO_ENABLED = os.getenv("MINIO_ENABLED", "false").lower() == "true"
 ```
 
-**Bronze Validator** — `make validate-bronze` runs `BronzeValidator` across all three sources, checking:
+**Bronze Validator**: `make validate-bronze` runs `BronzeValidator` across all three sources, checking:
 1. Every file has `_ingestion_timestamp`
 2. No column removals between successive partitions (additions are silently accepted)
 
-The validator uses lowercase normalisation for Parquet column names because TLC changed `airport_fee` to `Airport_fee` between file versions — a case change that is not a breaking schema change:
+The validator uses lowercase normalisation for Parquet column names because TLC changed `airport_fee` to `Airport_fee` between file versions: a case change that is not a breaking schema change:
 
 ```python
 # Only flag removals — additions from upstream are expected
@@ -544,19 +540,19 @@ if removed:
 
 ### 6.1 FastAPI REST API
 
-The REST API (`src/backend/api/main.py`) exposes all four Gold tables as filterable endpoints. It uses DuckDB under the hood via `GoldStorage.read()` — the same abstraction used by the processing pipeline — so the API and the dashboards always see identical data.
+The REST API (`src/backend/api/main.py`) exposes the Gold tables as filterable endpoints. It reads Parquet files via `GoldStorage.read()` (which uses `pd.read_parquet` under the hood), the same abstraction used by the processing pipeline, so the API and the dashboards always see identical data.
 
 Available endpoints:
 
 | Endpoint | Filters | Description |
 |----------|---------|-------------|
-| `GET /health` | — | Service health check |
+| `GET /health` |: | Service health check |
 | `GET /gold/taxi-demand` | borough, zone_id, hour_of_day, day_of_week, is_weekend, limit | Taxi demand aggregates |
 | `GET /gold/events` | borough, is_nightlife_event, is_weekend_event, start_after, start_before, limit | Event schedule |
-| `GET /gold/noise` | borough, complaint_type, hour_of_day, is_weekend, limit | Noise complaint aggregates |
-| `GET /gold/stream-metrics` | source, limit | 5-minute windowed stream metrics |
+| `GET /gold/noise` | borough, complaint_type, descriptor, hour_of_day, day_of_week, is_weekend, limit | Noise complaint aggregates |
+| `GET /gold/summary` | - | Row counts and metadata for all Gold tables |
 
-All endpoints return `{"count": N, "returned": M, "rows": [...]}` — the `count` field reflects the total matching rows, while `returned` reflects the applied `limit`. This lets API consumers page through large result sets efficiently.
+All endpoints return `{"count": N, "returned": M, "rows": [...]}`: the `count` field reflects the total matching rows, while `returned` reflects the applied `limit`. This lets API consumers page through large result sets efficiently.
 
 Error handling is uniform: if a Gold table has not been built yet, the endpoint returns HTTP 503 with a actionable message rather than a 500:
 
@@ -575,31 +571,38 @@ def _load_gold_or_404(table: str) -> pd.DataFrame:
 
 Four dashboards cover the platform's analytical scope:
 
-**Dashboard 1 — Late-Night Taxi**  
+**Dashboard 1: Late-Night Taxi**
 Answers: where is taxi demand concentrated during late-night hours, and how does it compare to daytime? Charts: zone-level heatmap (trip_count × hour), top-10 zones by total trips, trips by hour split weekday vs weekend, average fare by borough.
 
-**Dashboard 2 — Tonight's Events**  
+**Dashboard 2: Tonight's Events**
 Answers: what permitted events are happening, where, and when? Charts: events by borough, events by type, events per day timeline, upcoming nightlife events table. Nightlife events are identified by a heuristic flag (`is_nightlife_event`) set at Gold processing time.
 
-**Dashboard 3 — Live Noise Complaints**  
+**Dashboard 3: Live Noise Complaints**
 Answers: when and where do noise complaints spike, and what types dominate? Charts: noise by borough × hour heatmap, noise by hour (weekday vs weekend), descriptor breakdown by borough, top complaint types.
 
-**Dashboard 4 — Batch + Streaming Combined**  
+**Dashboard 4: Batch + Streaming Combined**
 Demonstrates the platform's hybrid nature by overlaying batch and streaming data in a single view. Charts: trips + events + noise counts by hour of day (from `batch_streaming_combined` view), streaming event volume by source and type, a quality table showing late-event and duplicate ratios per source from `stream_metrics_5m`.
 
-All dashboards query DuckDB views that read Parquet files directly — no intermediate database loading step.
+All dashboards query DuckDB views that read Parquet files directly: no intermediate database loading step.
 
 ### 6.3 Airflow Orchestration
 
-The batch pipeline is orchestrated by an Airflow DAG (`src/backend/airflow/dags/batch_pipeline.py`) that runs daily. The DAG has five tasks in sequence:
+The batch pipeline is orchestrated by an Airflow DAG (`src/backend/airflow/dags/batch_pipeline.py`) that runs daily. The DAG has five tasks with the following dependency structure:
 
 ```
 ingest_tlc_to_bronze
        │
-silver_process_tlc → silver_process_events → silver_process_noise311
-                                │
-                         gold_build_all
+process_tlc_bronze_to_silver    process_events_bronze_to_silver
+       │                               │
+       └──────────────┬────────────────┘
+                      │  process_noise311_bronze_to_silver
+                      │               │
+                      └───────┬───────┘
+                              ▼
+                       build_gold_tables
 ```
+
+`process_events_bronze_to_silver` and `process_noise311_bronze_to_silver` run independently of `ingest_tlc_to_bronze` and in parallel with each other. All three Silver tasks must complete before `build_gold_tables` runs.
 
 Each task is a `BashOperator` wrapping the corresponding `clm` command. All tasks share a common `on_failure_callback` that logs task ID, run ID, and the exception:
 
@@ -648,7 +651,7 @@ The 16.6% of Bronze TLC rows removed by quality filters break down roughly as fo
 
 | Filter | Approximate impact |
 |--------|--------------------|
-| `zero_or_negative_distance` | Largest contributor — many "meter-on" records |
+| `zero_or_negative_distance` | Largest contributor: many "meter-on" records |
 | `zero_or_missing_passengers` | Driver-entered field, frequently 0 |
 | `non_positive_duration` | Clock errors, same-second pickups and dropoffs |
 | `negative_fare` / `negative_tip` | Reversals and corrections in TLC system |
@@ -658,10 +661,10 @@ The 16.6% of Bronze TLC rows removed by quality filters break down roughly as fo
 ### Streaming pipeline quality (from stream_metrics_5m)
 
 From the 256 rows of windowed metrics collected during a single `clm stream-aggregates` run:
-- **Events source:** `late_event_ratio` near 1.0 for most windows — expected, since the Socrata Events API returns historical records from 2020 onward, all of which arrive "late" relative to the watermark
+- **Events source:** `late_event_ratio` near 1.0 for most windows: expected, since the Socrata Events API returns historical records from 2020 onward, all of which arrive "late" relative to the watermark
 - **Noise311 source:** lower late-event ratio for recent complaints; higher for backfill records
 
-The high late-event ratio for historical backfill data is not a pipeline failure — it is the correct behaviour of the watermark system detecting that old records are being ingested in bulk.
+The high late-event ratio for historical backfill data is not a pipeline failure: it is the correct behaviour of the watermark system detecting that old records are being ingested in bulk.
 
 ---
 
@@ -669,7 +672,7 @@ The high late-event ratio for historical backfill data is not a pipeline failure
 
 ### Trade-off: local filesystem vs cloud object storage
 
-The platform stores all data on the local filesystem rather than in a cloud object store. This simplifies development and testing — no credentials, no network dependency, no bucket management. The `GoldStorage` abstraction insulates the processing code from the storage backend, so switching to S3-native storage would require only changes to `GoldStorage`, not to processors or the API. The MinIO integration demonstrates this: enabling `MINIO_ENABLED=true` mirrors all writes to S3 semantics with zero changes to the pipeline.
+The platform stores all data on the local filesystem rather than in a cloud object store. This simplifies development and testing: no credentials, no network dependency, no bucket management. The `GoldStorage` abstraction insulates the processing code from the storage backend, so switching to S3-native storage would require only changes to `GoldStorage`, not to processors or the API. The MinIO integration demonstrates this: enabling `MINIO_ENABLED=true` mirrors all writes to S3 semantics with zero changes to the pipeline.
 
 The limitation is scalability: a local filesystem cannot serve concurrent writers or be accessed from multiple machines. For a production deployment, the Parquet files would be written directly to S3, and DuckDB would be configured with the `httpfs` extension.
 
@@ -677,13 +680,13 @@ The limitation is scalability: a local filesystem cannot serve concurrent writer
 
 The entire batch processing pipeline uses Pandas DataFrames. This is appropriate for the dataset size (the largest single monthly TLC file is ~47 MB compressed) and avoids the significant operational complexity of running a Spark cluster for coursework. Pandas reads a 47 MB Parquet file in under a second and processes 3–4 million rows per file in a few seconds on a modern laptop.
 
-The limitation is that this approach does not scale to datasets that exceed memory. A Spark implementation would partition the data across executors and process each partition independently. Given that each monthly file is processed independently (the processor loops over files), migrating to Spark would primarily involve replacing the Pandas transformation functions with PySpark equivalents — the architectural structure would remain the same.
+The limitation is that this approach does not scale to datasets that exceed memory. A Spark implementation would partition the data across executors and process each partition independently. Given that each monthly file is processed independently (the processor loops over files), migrating to Spark would primarily involve replacing the Pandas transformation functions with PySpark equivalents: the architectural structure would remain the same.
 
 ### Trade-off: Silver deduplication strategy for streaming data
 
-Silver deduplication for Events and Noise311 is performed at **write time** — each Silver processor reads all existing Silver files, builds a set of seen IDs, and only writes rows with new IDs. This is simple and correct but has O(N) memory cost as the Silver dataset grows.
+Silver deduplication for Events and Noise311 is performed at **write time**: each Silver processor reads all existing Silver files, builds a set of seen IDs, and only writes rows with new IDs. This is simple and correct but has O(N) memory cost as the Silver dataset grows.
 
-An alternative would be deduplication at **read time** using DuckDB's `SELECT DISTINCT` over Bronze NDJSON files — this avoids storing the deduped state but re-processes the entire Bronze history on each Silver rebuild. For the current dataset sizes (35,209 and 42,376 unique records), write-time dedup is the better choice.
+An alternative would be deduplication at **read time** using DuckDB's `SELECT DISTINCT` over Bronze NDJSON files: this avoids storing the deduped state but re-processes the entire Bronze history on each Silver rebuild. For the current dataset sizes (35,209 and 42,376 unique records), write-time dedup is the better choice.
 
 ### Limitation: temporal coverage mismatch
 
@@ -700,9 +703,9 @@ The `stream_metrics_5m` Gold table contains 256 rows from a single demonstration
 City Live Monitor implements a complete, production-grade data platform covering the full path from raw data sources to analytics dashboards. The key results are:
 
 - **124 million raw TLC records** ingested, validated, and cleaned to 103 million Silver rows enriched with 14 analytical features
-- **Three streaming data sources** polled incrementally with circuit breakers, checkpoint-based cursors, and DLQ routing for malformed events
+- **Two streaming data sources** (Permitted Events and 311 Noise) polled incrementally with circuit breakers, checkpoint-based cursors, and DLQ routing for malformed events
 - **Seven Gold tables** covering flat aggregates and a formal star schema, all queryable via DuckDB in milliseconds
 - **Four Superset dashboards** combining batch and streaming data, built on a fully-scripted bootstrap that installs datasets and charts from YAML manifests
 - **0 Bronze validation issues** after implementing column-removal-only drift detection and case-normalised schema comparison
 
-The platform demonstrates that a hybrid batch/streaming medallion architecture can be implemented on commodity hardware without managed cloud services, using only open-source tools (DuckDB, Kafka, MinIO, Airflow, Superset) and standard Python data libraries. The abstractions introduced — `BaseIngester`, `BaseProcessor`, `GoldStorage`, `BronzeValidator` — provide clear extension points for adding new data sources or output formats without modifying existing processing logic.
+The platform demonstrates that a hybrid batch/streaming medallion architecture can be implemented on commodity hardware without managed cloud services, using only open-source tools (DuckDB, Kafka, MinIO, Airflow, Superset) and standard Python data libraries. The abstractions introduced: `BaseIngester`, `BaseProcessor`, `GoldStorage`, `BronzeValidator`: provide clear extension points for adding new data sources or output formats without modifying existing processing logic.
