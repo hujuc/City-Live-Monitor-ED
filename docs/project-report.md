@@ -98,18 +98,7 @@ The architecture follows the **medallion pattern**: three successive layers of d
 
 The TLC dataset is distributed as monthly Parquet files from a CloudFront CDN. The ingester (`src/backend/ingestion/batch/download_tlc.py`) implements four production-grade features that together make the ingestion process robust for the full 35-file dataset:
 
-**Incremental download**: files that already exist on disk and pass validation are skipped. This avoids re-downloading 2 GB of data on restarts:
-
-```python
-def _download(task: DownloadTask) -> tuple[DownloadTask, bool, str]:
-    dest = task.dest_path
-    tmp = dest.with_suffix(".tmp")
-
-    if dest.exists() and _validate(dest):
-        return task, True, "already exists, skipped"   # fast path
-    elif dest.exists():
-        dest.unlink()   # corrupted file — force re-download
-```
+**Incremental download**: files that already exist on disk and pass validation are skipped. This avoids re-downloading 2 GB of data on restarts.
 
 **Atomic writes via `.tmp` rename**: the file is written to `<name>.tmp` first, then renamed to its final path only after validation passes. This prevents partially-downloaded files from being treated as complete:
 
@@ -134,20 +123,7 @@ def _validate(path: Path) -> bool:
         return f.read(4) == b"PAR1"
 ```
 
-**Parallel downloads with retry and exponential backoff**: up to 4 threads download concurrently; each thread retries up to 5 times with delays of 2s, 4s, 8s, 16s, 32s:
-
-```python
-MAX_WORKERS = 4
-INITIAL_BACKOFF = 2.0
-BACKOFF_FACTOR = 2.0
-MAX_RETRIES = 5
-
-with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-    futures = {pool.submit(_download, t): t for t in tasks}
-    for future in as_completed(futures):
-        task, ok, reason = future.result()
-        ...
-```
+**Parallel downloads with retry and exponential backoff**: up to 4 threads download concurrently; each thread retries up to 5 times with delays of 2s, 4s, 8s, 16s, 32s.
 
 **Ingestion timestamp**: every Parquet file is accompanied by a `.meta.json` sidecar written at download time. Because Parquet is a binary format that cannot be modified without rewriting, the sidecar is the appropriate carrier for ingestion metadata:
 
@@ -187,21 +163,7 @@ if publish_errors == 0 and max_created_date:
 
 The checkpoint is only advanced when all Kafka publishes succeed. This gives at-least-once delivery semantics: on a partial failure, the cursor stays at the last safe position and duplicate rows will be re-fetched and deduplicated at the Silver layer.
 
-**Pagination**: Socrata responses are limited to 2,000 rows per request. For backfill scenarios (e.g., the first poll ever, which may have years of history), the helper fetches additional pages until no more rows are returned:
-
-```python
-def fetch_socrata_rows_paginated(...) -> tuple[list[dict], str | None]:
-    all_rows: list[dict] = []
-    page = 0
-    while True:
-        params = _build_page_params(offset=page * limit, ...)
-        batch = fetch_socrata_rows(endpoint, params, app_token, timeout_seconds)
-        all_rows.extend(batch)
-        if len(batch) < limit:
-            break   # last page
-        page += 1
-    return all_rows, max_timestamp(all_rows, timestamp_field)
-```
+**Pagination**: Socrata responses are limited to 2,000 rows per request. For backfill scenarios (e.g., the first poll ever, which may have years of history), the helper fetches additional pages until no more rows are returned.
 
 **Circuit breaker**: a consecutive-failure circuit breaker prevents the poller from hammering a temporarily unavailable API. After `max_failures` (default: 5) consecutive failures, the breaker opens for `cooldown_seconds` (default: 120s):
 
@@ -294,15 +256,6 @@ for col in ["trip_distance", "fare_amount", "tip_amount", "total_amount", "passe
 | `non_positive_duration` | `dropoff_datetime <= pickup_datetime` |
 | `invalid_pickup_coords` | Lat/lon outside `[-90,90]` / `[-180,180]` |
 
-```python
-def _apply(label: str, mask: pd.Series) -> pd.DataFrame:
-    kept = current.loc[mask]
-    dropped = len(current) - len(kept)
-    if dropped:
-        breakdown.append(FilterRuleStat(rule=label, rows_dropped=dropped))
-    return kept
-```
-
 **Feature engineering** adds 14 derived columns to each surviving row. The most analytically significant are:
 
 ```python
@@ -379,26 +332,7 @@ def is_late(self, watermark_delay: timedelta = timedelta(minutes=5)) -> bool:
     return self.received_at - self.timestamp > watermark_delay
 ```
 
-**Tumbling window aggregations**: metrics are grouped into 5-minute tumbling windows keyed by `(window_start, source, subject)`. Each window accumulates event counts, late counts, duplicate counts, and out-of-order counts:
-
-```python
-def _record_metric(self, envelope: EventEnvelope, *, late=False,
-                   duplicate=False, out_of_order=False) -> None:
-    # Align event timestamp to 5-minute window boundary
-    ts = envelope.timestamp
-    window_start = ts.replace(
-        minute=(ts.minute // 5) * 5, second=0, microsecond=0
-    )
-    key = (window_start, envelope.source, envelope.subject)
-    m = self._metrics.setdefault(key, {
-        "event_count": 0, "late_event_count": 0,
-        "duplicate_event_count": 0, "out_of_order_event_count": 0,
-    })
-    m["event_count"] += 1
-    if late:     m["late_event_count"] += 1
-    if duplicate: m["duplicate_event_count"] += 1
-    if out_of_order: m["out_of_order_event_count"] += 1
-```
+**Tumbling window aggregations**: metrics are grouped into 5-minute tumbling windows keyed by `(window_start, source, subject)`. Each window accumulates event counts, late counts, duplicate counts, and out-of-order counts.
 
 The `KafkaAggregateRunner` wraps the `EventProcessor` in a Kafka consumer loop, flushing metrics to the `stream_metrics_5m` Gold table at configurable intervals. A single run with `--max-messages 500` produced 256 rows of windowed metrics covering both the `events` and `noise311` sources.
 
@@ -477,20 +411,7 @@ service_zone                 │  is_weekend              │
                           pct_rush_hour
 ```
 
-The `GoldStarSchemaProcessor` builds all three tables from the flat aggregate and the reference `taxi_zone_lookup.csv`:
-
-```python
-class GoldStarSchemaProcessor:
-    def build(self) -> dict[str, int]:
-        dim_zone = self._build_dim_zone()    # from taxi_zone_lookup.csv
-        dim_time = self._build_dim_time()    # computed: 24h × 7d = 168 rows
-        fact = self._build_fact(dim_zone, dim_time)  # join + select measures
-
-        self._gold.write(dim_zone, "dim_zone")
-        self._gold.write(dim_time, "dim_time")
-        self._gold.write(fact, "fact_taxi_demand")
-        return {"dim_zone": len(dim_zone), "dim_time": len(dim_time), "fact_taxi_demand": len(fact)}
-```
+The `GoldStarSchemaProcessor` builds all three tables from the flat aggregate and the reference `taxi_zone_lookup.csv`.
 
 ### 5.4 Lakehouse with DuckDB and MinIO
 
@@ -513,12 +434,7 @@ CREATE OR REPLACE VIEW batch_streaming_combined AS
     GROUP BY t.hour_of_day;
 ```
 
-**MinIO as an optional S3 mirror**: when `MINIO_ENABLED=true`, every `GoldStorage.write()` call mirrors the Parquet file to `s3://gold-layer/<table_name>/`. This enables access by S3-compatible tools without changing the local query path. The default is `false` so local runs and CI never attempt a network connection:
-
-```python
-# src/config/settings.py
-MINIO_ENABLED = os.getenv("MINIO_ENABLED", "false").lower() == "true"
-```
+**MinIO as an optional S3 mirror**: when `MINIO_ENABLED=true`, every `GoldStorage.write()` call mirrors the Parquet file to `s3://gold-layer/<table_name>/`. This enables access by S3-compatible tools without changing the local query path. The default is `false` so local runs and CI never attempt a network connection.
 
 **Bronze Validator**: `make validate-bronze` runs `BronzeValidator` across all three sources, checking:
 1. Every file has `_ingestion_timestamp`
