@@ -49,7 +49,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
-ignore = []
+ignore = ["E501"]  # line length enforced by ruff-format; long markdown strings are intentional
 
 [tool.black]
 line-length = 100
