@@ -160,6 +160,44 @@ services:
       - ./data:/app/data
 
   # ---------------------------------------------------------------------------
+  # Monitoring — Kafka Exporter + Prometheus + Grafana
+  # Kafka lag, DLQ depth, broker health → http://localhost:3000
+  # ---------------------------------------------------------------------------
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    command: ["--kafka.server=kafka:29092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9308:9308"
+
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    ports:
+      - "9090:9090"   # UI → http://localhost:9090
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+
+  grafana:
+    image: grafana/grafana:13.0.1
+    ports:
+      - "3000:3000"   # UI → http://localhost:3000
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  # ---------------------------------------------------------------------------
   # Frontend — React/Vite (uncomment when src/frontend is scaffolded)
   # ---------------------------------------------------------------------------
   # frontend:
@@ -177,3 +215,5 @@ volumes:
   airflow_logs:
   superset_db:
   superset_data:
+  prometheus_data:
+  grafana_data:

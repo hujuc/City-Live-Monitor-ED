@@ -1,0 +1,93 @@
+{
+  "title": "NYC Nightlife Pulse — Pipeline Health",
+  "uid": "nyc-pipeline",
+  "schemaVersion": 38,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Kafka Consumer Lag — noise311",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "kafka_consumergroup_lag{topic=\"noise311.raw\"}",
+          "legendFormat": "{{consumergroup}} / {{partition}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Kafka Consumer Lag — events",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "kafka_consumergroup_lag{topic=\"events.raw\"}",
+          "legendFormat": "{{consumergroup}} / {{partition}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Messages In — noise311.raw",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(kafka_topic_partition_current_offset{topic=\"noise311.raw\"}[1m])",
+          "legendFormat": "msg/s partition {{partition}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Messages In — events.raw",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(kafka_topic_partition_current_offset{topic=\"events.raw\"}[1m])",
+          "legendFormat": "msg/s partition {{partition}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "DLQ Messages — noise311.dlq",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "kafka_topic_partition_current_offset{topic=\"noise311.dlq\"}"
+        }
+      ],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } }
+    },
+    {
+      "id": 6,
+      "title": "DLQ Messages — events.dlq",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "kafka_topic_partition_current_offset{topic=\"events.dlq\"}"
+        }
+      ],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } }
+    },
+    {
+      "id": 7,
+      "title": "Broker Online",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "kafka_brokers"
+        }
+      ],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "red" }, { "value": 1, "color": "green" }] } }
+    }
+  ]
+}
