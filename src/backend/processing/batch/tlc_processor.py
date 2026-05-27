@@ -192,6 +192,10 @@ class TLCBatchProcessor(BaseProcessor):
                 "invalid_datetime",
                 current["pickup_datetime_utc"].notna() & current["dropoff_datetime_utc"].notna(),
             ),
+            (
+                "out_of_range_year",
+                current["pickup_datetime_utc"].dt.year.between(2020, 2026),
+            ),
         ]
         for label, mask in rules:
             current = _apply(label, mask)

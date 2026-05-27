@@ -42,7 +42,7 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
         console.print(Panel(command.help, title="Description", border_style="cyan"))
 
     usage_parts: list[str] = [ctx.command_path]
-    if isinstance(command, click.MultiCommand): # type: ignore[arg-type]
+    if isinstance(command, click.MultiCommand):  # type: ignore[arg-type]
         usage_parts.append("[OPTIONS] COMMAND [ARGS]...")
     else:
         usage_parts.extend(command.collect_usage_pieces(ctx))
@@ -90,10 +90,10 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
             Panel(opt_table, title="[bold green]Options[/bold green]", border_style="green")
         )
 
-    if show_commands and isinstance(command, click.MultiCommand): # type: ignore[arg-type]
+    if show_commands and isinstance(command, click.MultiCommand):  # type: ignore[arg-type]
         command_rows: list[tuple[str, str]] = []
-        for cmd_name in command.list_commands(ctx): # type: ignore[arg-type]
-            sub = command.get_command(ctx, cmd_name) # type: ignore[arg-type]
+        for cmd_name in command.list_commands(ctx):  # type: ignore[arg-type]
+            sub = command.get_command(ctx, cmd_name)  # type: ignore[arg-type]
             if not sub:
                 continue
             short_help = sub.get_short_help_str()
@@ -413,7 +413,7 @@ def backfill_ndjson_meta(dry_run: bool) -> None:
         for ndjson_path in sorted(source_dir.rglob("*.ndjson")):
             # Check first row only to decide whether to process
             with ndjson_path.open(encoding="utf-8") as fh:
-                first = next((json.loads(l) for l in fh if l.strip()), None)
+                first = next((json.loads(line) for line in fh if line.strip()), None)
             if first is None or "_ingestion_timestamp" in first:
                 skipped += 1
                 continue
@@ -422,7 +422,9 @@ def backfill_ndjson_meta(dry_run: bool) -> None:
             ingestion_ts = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
             if dry_run:
-                logger.info("[backfill-ndjson] would patch {} (ts={})", ndjson_path.name, ingestion_ts)
+                logger.info(
+                    "[backfill-ndjson] would patch {} (ts={})", ndjson_path.name, ingestion_ts
+                )
                 patched += 1
                 continue
 
@@ -455,9 +457,7 @@ def validate_bronze() -> None:
     ]
 
     all_valid = all(r.is_valid for r in results)
-    total_issues = sum(
-        len(r.missing_timestamp_files) + len(r.schema_drift_files) for r in results
-    )
+    total_issues = sum(len(r.missing_timestamp_files) + len(r.schema_drift_files) for r in results)
     logger.info(
         "[cli] validate-bronze finished: sources={} valid={} issues={}",
         len(results),
@@ -569,6 +569,30 @@ def summary() -> None:
         for cp in checkpoints:
             cp_table.add_row(cp.name, cp.read_text().strip())
         console.print(cp_table)
+
+
+@cli.command("train-model")
+@click.option("--start-date", default="2024-06-01", show_default=True, help="Training window start")
+@click.option("--end-date", default="2026-05-27", show_default=True, help="Training window end")
+def train_model(start_date: str, end_date: str) -> None:
+    """Build ML training dataset from Silver and train an activity classifier."""
+    from backend.ml.classifier import train_classifier
+    from backend.processing.batch.gold.ml_dataset_builder import build_ml_dataset
+
+    dataset_path = Config.GOLD_DIR / "ml_training" / "ml_dataset.parquet"
+    model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
+
+    build_ml_dataset(Config.SILVER_DIR, dataset_path, start_date, end_date)
+    results = train_classifier(dataset_path, model_path)
+
+    click.echo(f"\nAccuracy : {results['accuracy']:.2%}")
+    click.echo(f"Precision: {results['precision']:.3f}")
+    click.echo(f"Recall   : {results['recall']:.3f}")
+    click.echo(f"F1       : {results['f1']:.3f}")
+    click.echo("\nFeature importances:")
+    for feat, imp in sorted(results["importances"].items(), key=lambda x: -x[1]):
+        bar = "█" * int(imp * 40)
+        click.echo(f"  {feat:30s} {imp:.4f}  {bar}")
 
 
 if __name__ == "__main__":
