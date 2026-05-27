@@ -571,6 +571,62 @@ def summary() -> None:
         console.print(cp_table)
 
 
+@cli.command("backfill-events-historical")
+@click.option(
+    "--start-date",
+    default="2024-06-01",
+    show_default=True,
+    help="Inclusive fetch start (YYYY-MM-DD)",
+)
+@click.option(
+    "--end-date", default="2026-05-27", show_default=True, help="Inclusive fetch end (YYYY-MM-DD)"
+)
+@click.option(
+    "--max-pages", default=None, type=int, help="Cap pages for testing (default: unlimited)"
+)
+def backfill_events_historical(start_date: str, end_date: str, max_pages: int | None) -> None:
+    """Fetch historical NYC permitted events (bkfu-528j) and write to Bronze + Silver."""
+    from backend.ingestion.streaming.common import (
+        fetch_socrata_rows_paginated,
+        write_ndjson_snapshot,
+    )
+    from backend.processing.batch.events_processor import PermittedEventsSilverProcessor
+
+    start_cursor = f"{start_date}T00:00:00"
+    upper_bound = f"{end_date}T23:59:59"
+
+    logger.info("[backfill-events] Fetching bkfu-528j from {} to {}", start_cursor, upper_bound)
+    rows, _ = fetch_socrata_rows_paginated(
+        endpoint=Config.EVENTS_HISTORICAL_API_URL,
+        timestamp_field="start_date_time",
+        static_where=f"start_date_time <= '{upper_bound}'",
+        app_token=Config.SOCRATA_APP_TOKEN,
+        timeout_seconds=Config.STREAM_REQUEST_TIMEOUT_SECONDS,
+        limit=Config.EVENTS_API_LIMIT,
+        cursor=start_cursor,
+        first_page_inclusive=True,
+        max_pages=max_pages,
+    )
+    logger.info("[backfill-events] Fetched {} rows", len(rows))
+
+    if not rows:
+        click.echo("No rows returned — check date range or network.")
+        return
+
+    bronze_path = write_ndjson_snapshot(Config.BRONZE_DIR, "nyc_permitted_events", rows)
+    click.echo(f"Bronze snapshot: {bronze_path}  ({len(rows)} rows)")
+
+    processor = PermittedEventsSilverProcessor()
+    stats = processor.process_bronze_tree(
+        bronze_root=Config.BRONZE_DIR / "nyc_permitted_events",
+        destination=Config.SILVER_DIR / "events",
+    )
+    click.echo(
+        f"Silver: files={stats.files_processed} rows_in={stats.rows_read}"
+        f" rows_out={stats.rows_written} dropped={stats.rows_dropped}"
+    )
+
+
 @cli.command("train-model")
 @click.option("--start-date", default="2024-06-01", show_default=True, help="Training window start")
 @click.option("--end-date", default="2026-05-27", show_default=True, help="Training window end")
