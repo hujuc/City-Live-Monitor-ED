@@ -585,10 +585,24 @@ def train_model(start_date: str, end_date: str) -> None:
     build_ml_dataset(Config.SILVER_DIR, dataset_path, start_date, end_date)
     results = train_classifier(dataset_path, model_path)
 
-    click.echo(f"\nAccuracy : {results['accuracy']:.2%}")
-    click.echo(f"Precision: {results['precision']:.3f}")
-    click.echo(f"Recall   : {results['recall']:.3f}")
-    click.echo(f"F1       : {results['f1']:.3f}")
+    click.echo(f"\nTrain size: {results['train_size']}  Test size: {results['test_size']}")
+    click.echo(f"Threshold : {results['threshold']:.0f} complaints/day (training median)")
+    click.echo("\nRandom Forest (test set):")
+    click.echo(f"  Accuracy : {results['accuracy']:.2%}")
+    click.echo(f"  Precision: {results['precision']:.3f}")
+    click.echo(f"  Recall   : {results['recall']:.3f}")
+    click.echo(f"  F1       : {results['f1']:.3f}")
+    click.echo(f"  ROC-AUC  : {results['roc_auc']:.3f}")
+    click.echo(
+        f"\nCV ROC-AUC (TimeSeriesSplit n=5): {results['cv_mean']:.3f} ± {results['cv_std']:.3f}"
+    )
+    click.echo(f"  Folds: {[f'{s:.3f}' for s in results['cv_scores']]}")
+
+    click.echo("\nBaselines:")
+    for name, b in results["baselines"].items():
+        auc = f"  ROC-AUC={b['roc_auc']:.3f}" if "roc_auc" in b else ""
+        click.echo(f"  {name:22s}  acc={b['accuracy']:.2%}  f1={b['f1']:.3f}{auc}")
+
     click.echo("\nFeature importances:")
     for feat, imp in sorted(results["importances"].items(), key=lambda x: -x[1]):
         bar = "█" * int(imp * 40)

@@ -22,6 +22,7 @@ dependencies = [
     "minio>=7.2.0",
     "scikit-learn>=1.5.0",
     "joblib>=1.4.0",
+    "holidays>=0.97",
 ]
 
 [project.optional-dependencies]

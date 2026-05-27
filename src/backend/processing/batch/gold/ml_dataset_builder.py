@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import holidays as hol
 import pandas as pd
 from loguru import logger
 
@@ -88,7 +89,6 @@ def _load_events_silver(events_root: Path, start: pd.Timestamp, end: pd.Timestam
         if year is None or not _in_date_range(year, month, start, end):
             continue
         df = pd.read_parquet(f, columns=["start_date_time"])
-        # start_date_time is a string like "2026-09-01T06:00:00.000"
         dates = pd.to_datetime(df["start_date_time"], errors="coerce").dt.normalize()
         dates = dates.dropna()
         dates_utc = dates.dt.tz_localize("UTC", ambiguous="NaT", nonexistent="NaT")
@@ -113,13 +113,19 @@ def build_ml_dataset(
     start_date: str = "2024-06-01",
     end_date: str = "2026-05-27",
 ) -> pd.DataFrame:
-    """Build an ML-ready daily dataset from Silver Noise311, Events, and (optionally) TLC.
+    """Build an ML-ready daily dataset from Silver Noise311, Events, and TLC.
 
-    Target: is_high_noise_day — whether noise complaints exceed the median.
-    This target is available across the full date range (Jun 2024 – May 2026).
+    The binary target (is_high_activity) is NOT pre-computed here — it must be
+    derived inside the trainer using the training-set median only, to avoid
+    label leakage from test-period noise levels into the threshold.
 
-    Events are a forward-looking feature (known before the night happens), making
-    this model suitable for predicting activity before going out.
+    Features:
+      day_of_week, month, is_summer, is_holiday_season, is_holiday,
+      events_count, noise_7d_avg, taxi_trips_filled
+
+    Raw columns kept for the trainer:
+      noise_complaints  — used to compute binary target on train set
+      taxi_trips        — unimputed; trainer imputes from train median
     """
     start = pd.Timestamp(start_date, tz="UTC")
     end = pd.Timestamp(end_date + "T23:59:59", tz="UTC")
@@ -128,36 +134,38 @@ def build_ml_dataset(
     events_df = _load_events_silver(silver_root / "events", start, end)
     taxi_df = _load_tlc_silver(silver_root / "tlc/yellow", start, end)
 
-    # Noise is the backbone — left-join everything onto it
     df = noise_df.copy()
     df = df.merge(events_df, on="date", how="left")
     df = df.merge(taxi_df, on="date", how="left")
 
-    # Days with no events data get 0 (no permitted events known for that day)
     df["events_count"] = df["events_count"].fillna(0).astype(int)
-
     df = df.sort_values("date").reset_index(drop=True)
 
+    # ── Calendar features ──────────────────────────────────────────────────────
     df["day_of_week"] = df["date"].dt.dayofweek
     df["month"] = df["date"].dt.month
-    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
     df["is_summer"] = df["month"].isin([6, 7, 8]).astype(int)
     df["is_holiday_season"] = df["month"].isin([11, 12, 1]).astype(int)
 
-    # Target: is this a high-activity night? (noise complaints above median)
-    threshold = df["noise_complaints"].median()
-    df["is_high_activity"] = (df["noise_complaints"] > threshold).astype(int)
+    years = df["date"].dt.year.unique().tolist()
+    us_holidays = hol.US(years=years)
+    df["is_holiday"] = df["date"].dt.date.isin(us_holidays).astype(int)
+
+    # ── Lag feature: 7-day rolling noise average (shift to avoid same-day leak) ─
+    df["noise_7d_avg"] = df["noise_complaints"].shift(1).rolling(7, min_periods=3).mean().round(1)
+
+    # ── Taxi trips with train-median imputation (done in trainer, stored raw here) ─
+    # taxi_trips stays as-is (NaN for 2026); trainer imputes from train median
 
     has_events = (df["events_count"] > 0).sum()
     has_taxi = df["taxi_trips"].notna().sum()
+    has_holiday = df["is_holiday"].sum()
     logger.info(
-        "[ml_dataset] {} daily records ({:.1f}% high-activity); "
-        "days_with_events={} days_with_taxi={}; noise_threshold={:.0f}",
+        "[ml_dataset] {} daily records; days_with_events={} days_with_taxi={} holidays={}",
         len(df),
-        df["is_high_activity"].mean() * 100,
         has_events,
         has_taxi,
-        threshold,
+        has_holiday,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -43,6 +44,31 @@ def _make_events_silver_parquet(tmp_path: Path, year: int, month: int, n: int = 
     f = partition / "events_silver.parquet"
     df.to_parquet(f)
     return f
+
+
+def _make_ml_dataset(tmp_path: Path, n: int = 120) -> Path:
+    """Build a synthetic ML parquet matching the schema produced by build_ml_dataset."""
+    rng = np.random.default_rng(42)
+    dates = pd.date_range("2024-01-01", periods=n, tz="UTC")
+    noise = rng.integers(1_000, 5_000, n).astype(float)
+    noise_7d = pd.Series(noise).shift(1).rolling(7, min_periods=3).mean().round(1).values
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "noise_complaints": noise,
+            "taxi_trips": np.where(rng.random(n) < 0.1, np.nan, rng.integers(50_000, 200_000, n)),
+            "events_count": rng.integers(0, 50, n),
+            "day_of_week": rng.integers(0, 7, n),
+            "month": rng.integers(1, 13, n),
+            "is_summer": rng.integers(0, 2, n),
+            "is_holiday_season": rng.integers(0, 2, n),
+            "is_holiday": rng.integers(0, 2, n),
+            "noise_7d_avg": noise_7d,
+        }
+    )
+    path = tmp_path / "ml_dataset.parquet"
+    df.to_parquet(path, index=False)
+    return path
 
 
 # ── Unit tests ────────────────────────────────────────────────────────────────
@@ -97,16 +123,18 @@ def test_build_ml_dataset(tmp_path: Path):
     assert len(df) > 0
     assert "noise_complaints" in df.columns
     assert "events_count" in df.columns
-    assert "is_high_activity" in df.columns
+    assert "is_holiday" in df.columns
+    assert "noise_7d_avg" in df.columns
+    assert "taxi_trips" in df.columns
     assert "day_of_week" in df.columns
-    assert df["is_high_activity"].isin([0, 1]).all()
+    # is_high_activity is NOT computed in the builder — computed in trainer only
+    assert "is_high_activity" not in df.columns
     assert (df["events_count"] >= 0).all()
 
 
 def test_build_ml_dataset_events_zero_when_missing(tmp_path: Path):
     silver_root = tmp_path / "silver"
     _make_noise_silver_parquet(silver_root, 2024, 6, n=80)
-    # No events Silver at all — events_count should be 0 everywhere
 
     output = tmp_path / "ml_dataset.parquet"
     df = build_ml_dataset(silver_root, output, start_date="2024-06-01", end_date="2024-06-30")
@@ -116,34 +144,32 @@ def test_build_ml_dataset_events_zero_when_missing(tmp_path: Path):
 
 
 def test_train_classifier(tmp_path: Path):
-    import numpy as np
-
-    n = 120
-    rng = np.random.default_rng(42)
-    df = pd.DataFrame(
-        {
-            "date": pd.date_range("2024-01-01", periods=n),
-            "noise_complaints": rng.integers(1_000, 5_000, n),
-            "events_count": rng.integers(0, 50, n),
-            "day_of_week": rng.integers(0, 7, n),
-            "month": rng.integers(1, 13, n),
-            "is_weekend": rng.integers(0, 2, n),
-            "is_summer": rng.integers(0, 2, n),
-            "is_holiday_season": rng.integers(0, 2, n),
-            "is_high_activity": rng.integers(0, 2, n),
-        }
-    )
-    dataset_path = tmp_path / "ml_dataset.parquet"
-    df.to_parquet(dataset_path, index=False)
-
+    dataset_path = _make_ml_dataset(tmp_path, n=120)
     model_path = tmp_path / "model.pkl"
     results = train_classifier(dataset_path, model_path)
 
     assert model_path.exists()
     assert 0.0 <= results["accuracy"] <= 1.0
+    assert 0.0 <= results["roc_auc"] <= 1.0
     assert set(results["importances"].keys()) == set(FEATURE_COLS)
-    assert results["train_size"] == int(n * 0.8)
-    assert results["test_size"] == n - int(n * 0.8)
+    assert "baselines" in results
+    assert "most_frequent" in results["baselines"]
+    assert "cv_mean" in results
+    assert "threshold" in results
+
+
+def test_train_classifier_target_not_from_test(tmp_path: Path):
+    """Verify binary target is computed from training rows only (no leakage)."""
+    dataset_path = _make_ml_dataset(tmp_path, n=120)
+    df = pd.read_parquet(dataset_path)
+    # Trainer computes split on the full df first, THEN drops NaN noise_7d_avg rows
+    split = int(len(df) * 0.8)
+    expected_threshold = float(df["noise_complaints"].iloc[:split].median())
+
+    model_path = tmp_path / "model.pkl"
+    results = train_classifier(dataset_path, model_path)
+
+    assert abs(results["threshold"] - expected_threshold) < 1.0
 
 
 def test_train_classifier_missing_columns(tmp_path: Path):
