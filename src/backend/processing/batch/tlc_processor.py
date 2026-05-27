@@ -1,5 +1,6 @@
 """Batch processing for NYC TLC trips (Bronze -> Silver)."""
 
+import gc
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -112,6 +113,9 @@ class TLCBatchProcessor(BaseProcessor):
                 stats.merge_filter_breakdown(breakdown)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("[batch/tlc] Failed processing {}: {}", src, exc)
+            finally:
+                del df
+                gc.collect()
 
         logger.info(
             "[batch/tlc] done: files={}/{} rows={} written={} dropped={}",
@@ -123,9 +127,7 @@ class TLCBatchProcessor(BaseProcessor):
         )
         if stats.filter_breakdown:
             for rule_stat in stats.filter_breakdown:
-                pct = (
-                    rule_stat.rows_dropped / stats.rows_read * 100 if stats.rows_read else 0.0
-                )
+                pct = rule_stat.rows_dropped / stats.rows_read * 100 if stats.rows_read else 0.0
                 logger.info(
                     "[batch/tlc] filter '{}': {:,} rows dropped ({:.2f}%)",
                     rule_stat.rule,
@@ -134,9 +136,7 @@ class TLCBatchProcessor(BaseProcessor):
                 )
         return stats
 
-    def _transform(
-        self, df: pd.DataFrame
-    ) -> tuple[pd.DataFrame, list[FilterRuleStat]]:
+    def _transform(self, df: pd.DataFrame) -> tuple[pd.DataFrame, list[FilterRuleStat]]:
         """Apply typing, quality filters, and feature engineering rules."""
         data = df.copy()
 
@@ -219,16 +219,14 @@ class TLCBatchProcessor(BaseProcessor):
             return current, breakdown
 
         if {"pickup_latitude", "pickup_longitude"}.issubset(current.columns):
-            mask = (
-                current["pickup_latitude"].between(-90, 90)
-                & current["pickup_longitude"].between(-180, 180)
-            )
+            mask = current["pickup_latitude"].between(-90, 90) & current[
+                "pickup_longitude"
+            ].between(-180, 180)
             current = _apply("invalid_pickup_coords", mask)
         if {"dropoff_latitude", "dropoff_longitude"}.issubset(current.columns):
-            mask = (
-                current["dropoff_latitude"].between(-90, 90)
-                & current["dropoff_longitude"].between(-180, 180)
-            )
+            mask = current["dropoff_latitude"].between(-90, 90) & current[
+                "dropoff_longitude"
+            ].between(-180, 180)
             current = _apply("invalid_dropoff_coords", mask)
 
         return current, breakdown

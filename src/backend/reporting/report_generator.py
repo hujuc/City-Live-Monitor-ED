@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import gc
 import json
 import tempfile
 from datetime import date
@@ -257,6 +258,8 @@ def _collect_parquet_profile(
 
     frames = [pd.read_parquet(path) for path in selected]
     sample = pd.concat(frames, ignore_index=True)
+    del frames
+    gc.collect()
     # Normalize to lowercase then drop duplicate columns (e.g. Airport_fee -> airport_fee)
     sample.columns = [c.lower() for c in sample.columns]
     sample = sample.loc[:, ~sample.columns.duplicated()]
