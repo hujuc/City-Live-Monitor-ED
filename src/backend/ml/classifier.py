@@ -8,7 +8,8 @@ import pandas as pd
 from loguru import logger
 from sklearn.base import ClassifierMixin
 from sklearn.dummy import DummyClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
@@ -32,9 +33,12 @@ FEATURE_COLS = [
     "noise_30d_avg",
     "noise_percentile_rank_30d",
     "noise_dow_avg",
+    "noise_residual_vs_dow",
     "events_count_log1p",
     "events_count_lag1",
+    "events_dow_avg",
     "weekend_events",
+    "friday_events",
     "taxi_trips_filled",
     "taxi_trips_lag1",
     "taxi_trips_7d_avg",
@@ -86,6 +90,7 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         "taxi_trips_filled",
         "events_count_log1p",
         "events_count_lag1",
+        "events_dow_avg",
         "dow_sin",
         "dow_cos",
         "is_weekend",
@@ -93,6 +98,8 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         "taxi_trips_7d_avg",
         "taxi_trips_dow_avg",
         "weekend_events",
+        "friday_events",
+        "noise_residual_vs_dow",
     }
     required = ["noise_complaints", "taxi_trips", "events_count"] + [
         c for c in FEATURE_COLS if c not in derived
@@ -110,6 +117,10 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
     df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
     df["weekend_events"] = df["is_weekend"] * df["events_count_log1p"]
+    df["friday_events"] = (df["day_of_week"] == 4).astype(int) * df["events_count_log1p"]
+    df["events_dow_avg"] = df.groupby("day_of_week")["events_count_log1p"].transform(
+        lambda s: s.shift(1).expanding(min_periods=4).mean().fillna(0.0)
+    )
 
     # Drop rows where any noise rolling feature is NaN (first ~30 rows lack rolling history)
     _rolling_cols = [
@@ -135,6 +146,7 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     df["taxi_trips_dow_avg"] = df.groupby("day_of_week")["taxi_trips_filled"].transform(
         lambda s: s.shift(1).expanding(min_periods=4).mean().fillna(train_taxi_median)
     )
+    df["noise_residual_vs_dow"] = df["noise_7d_avg"] - df["noise_dow_avg"]
 
     # Binary target and threshold computed from the same post-NaN-drop training split
     threshold = float(df["noise_complaints"].iloc[:split].median())
@@ -190,13 +202,12 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         yf_train = (noise_train_series.iloc[tr_idx] >= global_train_threshold).astype(int)
         yf_val = (noise_train_series.iloc[val_idx] >= global_train_threshold).astype(int)
 
-        clf_fold = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=8,
-            min_samples_leaf=5,
+        clf_fold = HistGradientBoostingClassifier(
+            max_iter=300,
+            max_depth=4,
+            learning_rate=0.05,
+            min_samples_leaf=20,
             random_state=42,
-            class_weight="balanced",
-            n_jobs=-1,
         )
         clf_fold.fit(xf_train, yf_train)
         proba = clf_fold.predict_proba(xf_val)[:, 1]
@@ -209,13 +220,12 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     logger.info("[ml] CV ROC-AUC: {:.3f} ± {:.3f}", cv_mean, cv_std)
 
     # ── Final model ───────────────────────────────────────────────────────────
-    model = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=8,
-        min_samples_leaf=5,
+    model = HistGradientBoostingClassifier(
+        max_iter=300,
+        max_depth=4,
+        learning_rate=0.05,
+        min_samples_leaf=20,
         random_state=42,
-        class_weight="balanced",
-        n_jobs=-1,
     )
     model.fit(x_train, y_train)
 
@@ -224,9 +234,11 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
     roc_auc = float(roc_auc_score(y_test, y_proba))
 
+    perm = permutation_importance(
+        model, x_test, y_test, n_repeats=10, random_state=42, n_jobs=-1, scoring="roc_auc"
+    )
     importances = {
-        feat: float(imp)
-        for feat, imp in zip(FEATURE_COLS, model.feature_importances_, strict=False)
+        feat: float(imp) for feat, imp in zip(FEATURE_COLS, perm.importances_mean, strict=False)
     }
 
     logger.info("[ml] Test accuracy: {:.2f}%", report["accuracy"] * 100)
