@@ -3,8 +3,10 @@
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 from loguru import logger
+from sklearn.base import ClassifierMixin
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -15,10 +17,9 @@ from sklearn.preprocessing import StandardScaler
 FEATURE_COLS = [
     "day_of_week",
     "month",
-    "is_summer",
-    "is_holiday_season",
     "is_holiday",
-    "events_count",
+    "events_count_log1p",
+    "events_count_lag1",
     "noise_7d_avg",
     "taxi_trips_filled",
 ]
@@ -33,10 +34,10 @@ def _make_target(noise_train: pd.Series, noise_full: pd.Series) -> pd.Series:
 
 def _eval_baseline(
     name: str,
-    clf,
-    x_train: pd.DataFrame,
+    clf: ClassifierMixin,
+    x_train: pd.DataFrame | np.ndarray,
     y_train: pd.Series,
-    x_test: pd.DataFrame,
+    x_test: pd.DataFrame | np.ndarray,
     y_test: pd.Series,
 ) -> dict:
     clf.fit(x_train, y_train)
@@ -64,8 +65,9 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     """Train a Random Forest on the ML dataset and save the model."""
     df = pd.read_parquet(dataset_path)
 
-    required = ["noise_complaints", "taxi_trips"] + [
-        c for c in FEATURE_COLS if c not in ("taxi_trips_filled",)
+    derived = {"taxi_trips_filled", "events_count_log1p", "events_count_lag1"}
+    required = ["noise_complaints", "taxi_trips", "events_count"] + [
+        c for c in FEATURE_COLS if c not in derived
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -82,13 +84,19 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
 
     # Binary target computed from training-set median only
     y = _make_target(df["noise_complaints"].iloc[:split], df["noise_complaints"])
-    threshold = float(df["noise_complaints"].iloc[:split].median())
 
-    # Drop rows where noise_7d_avg is NaN (first few rows lack history)
+    # Derived features: log1p compresses permit-slot count variance; lag captures next-day spillover
+    df["events_count_log1p"] = np.log1p(df["events_count"])
+    df["events_count_lag1"] = df["events_count"].shift(1).fillna(0).astype(int)
+
+    # Drop rows where noise_7d_avg is NaN (first few rows lack rolling history)
     valid = df["noise_7d_avg"].notna()
     df = df[valid].reset_index(drop=True)
     y = y[valid].reset_index(drop=True)
     split = int(len(df) * 0.8)
+
+    # Threshold reflects the post-NaN-drop training set (matches what the model trains on)
+    threshold = float(df["noise_complaints"].iloc[:split].median())
 
     features = df[FEATURE_COLS].copy()
     x_train, x_test = features.iloc[:split], features.iloc[split:]
@@ -98,6 +106,11 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     logger.info("[ml] Activity threshold (train median): {:.0f} complaints/day", threshold)
 
     # ── Baselines ──────────────────────────────────────────────────────────────
+    # Single scaler fit on train only — transform applied separately to avoid test-set leakage
+    scaler = StandardScaler()
+    x_train_scaled = scaler.fit_transform(x_train)
+    x_test_scaled = scaler.transform(x_test)
+
     baselines = {
         "most_frequent": _eval_baseline(
             "most_frequent",
@@ -118,21 +131,21 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         "logistic_regression": _eval_baseline(
             "logistic_regression",
             LogisticRegression(max_iter=500, random_state=42),
-            StandardScaler().fit_transform(x_train),
+            x_train_scaled,
             y_train,
-            StandardScaler().fit_transform(x_test),
+            x_test_scaled,
             y_test,
         ),
     }
 
-    # ── TimeSeriesSplit cross-validation ──────────────────────────────────────
+    # ── TimeSeriesSplit cross-validation (train portion only) ──────────────────
     tscv = TimeSeriesSplit(n_splits=5)
     cv_scores = []
-    for fold, (tr_idx, val_idx) in enumerate(tscv.split(features)):
-        xf_train, xf_val = features.iloc[tr_idx], features.iloc[val_idx]
-        # Recompute target threshold per fold to avoid leakage
-        fold_threshold = float(df["noise_complaints"].iloc[tr_idx].median())
-        yf = (df["noise_complaints"] >= fold_threshold).astype(int)
+    noise_train_series = df["noise_complaints"].iloc[:split].reset_index(drop=True)
+    for fold, (tr_idx, val_idx) in enumerate(tscv.split(x_train)):
+        xf_train, xf_val = x_train.iloc[tr_idx], x_train.iloc[val_idx]
+        fold_threshold = float(noise_train_series.iloc[tr_idx].median())
+        yf = (noise_train_series >= fold_threshold).astype(int)
         yf_train, yf_val = yf.iloc[tr_idx], yf.iloc[val_idx]
 
         clf_fold = RandomForestClassifier(

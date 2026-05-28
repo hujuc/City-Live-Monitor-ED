@@ -159,12 +159,13 @@ def test_train_classifier(tmp_path: Path):
 
 
 def test_train_classifier_target_not_from_test(tmp_path: Path):
-    """Verify binary target is computed from training rows only (no leakage)."""
+    """Verify binary target threshold is computed from post-NaN-drop training rows only."""
     dataset_path = _make_ml_dataset(tmp_path, n=120)
     df = pd.read_parquet(dataset_path)
-    # Trainer computes split on the full df first, THEN drops NaN noise_7d_avg rows
-    split = int(len(df) * 0.8)
-    expected_threshold = float(df["noise_complaints"].iloc[:split].median())
+    df = df.sort_values("date").reset_index(drop=True)
+    df_valid = df[df["noise_7d_avg"].notna()].reset_index(drop=True)
+    split = int(len(df_valid) * 0.8)
+    expected_threshold = float(df_valid["noise_complaints"].iloc[:split].median())
 
     model_path = tmp_path / "model.pkl"
     results = train_classifier(dataset_path, model_path)
