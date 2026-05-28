@@ -571,60 +571,116 @@ def summary() -> None:
         console.print(cp_table)
 
 
-@cli.command("backfill-events-historical")
+@cli.command("backfill-events-daily-counts")
 @click.option(
     "--start-date",
     default="2024-06-01",
     show_default=True,
-    help="Inclusive fetch start (YYYY-MM-DD)",
+    help="Inclusive start date (YYYY-MM-DD)",
 )
 @click.option(
-    "--end-date", default="2026-05-27", show_default=True, help="Inclusive fetch end (YYYY-MM-DD)"
+    "--end-date",
+    default="2026-05-27",
+    show_default=True,
+    help="Inclusive end date (YYYY-MM-DD)",
 )
-@click.option(
-    "--max-pages", default=None, type=int, help="Cap pages for testing (default: unlimited)"
-)
-def backfill_events_historical(start_date: str, end_date: str, max_pages: int | None) -> None:
-    """Fetch historical NYC permitted events (bkfu-528j) and write to Bronze + Silver."""
-    from backend.ingestion.streaming.common import (
-        fetch_socrata_rows_paginated,
-        write_ndjson_snapshot,
-    )
-    from backend.processing.batch.events_processor import PermittedEventsSilverProcessor
+def backfill_events_daily_counts(start_date: str, end_date: str) -> None:
+    """Fetch per-day event counts from bkfu-528j via Socrata aggregation and save to Gold.
 
-    start_cursor = f"{start_date}T00:00:00"
-    upper_bound = f"{end_date}T23:59:59"
+    Uses server-side grouping so only ~730 rows are transferred instead of
+    millions of individual permit records. Output is saved to
+    data/gold/ml_training/events_historical_counts.parquet and is picked up
+    automatically by the train-model command.
+    """
+    import pandas as pd
+    import requests
 
-    logger.info("[backfill-events] Fetching bkfu-528j from {} to {}", start_cursor, upper_bound)
-    rows, _ = fetch_socrata_rows_paginated(
-        endpoint=Config.EVENTS_HISTORICAL_API_URL,
-        timestamp_field="start_date_time",
-        static_where=f"start_date_time <= '{upper_bound}'",
-        app_token=Config.SOCRATA_APP_TOKEN,
-        timeout_seconds=Config.STREAM_REQUEST_TIMEOUT_SECONDS,
-        limit=Config.EVENTS_API_LIMIT,
-        cursor=start_cursor,
-        first_page_inclusive=True,
-        max_pages=max_pages,
-    )
-    logger.info("[backfill-events] Fetched {} rows", len(rows))
+    url = Config.EVENTS_HISTORICAL_API_URL
+    headers = {"X-App-Token": Config.SOCRATA_APP_TOKEN} if Config.SOCRATA_APP_TOKEN else {}
 
-    if not rows:
-        click.echo("No rows returned — check date range or network.")
+    # The dataset has 32M rows — a single GROUP BY times out; query month-by-month instead.
+    # Results are checkpointed so a restart skips already-fetched months.
+    out = Config.GOLD_DIR / "ml_training" / "events_historical_counts.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: set[str] = set()
+    if out.exists():
+        prev = pd.read_parquet(out)
+        existing = set(prev["date"].dt.strftime("%Y-%m"))
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    months = pd.period_range(start=start_ts, end=end_ts, freq="M")
+
+    def _save(rows: list[dict]) -> None:
+        """Merge new rows into the parquet and write atomically."""
+        new_df = pd.DataFrame(rows)
+        new_df["date"] = pd.to_datetime(new_df["event_date"], utc=True)
+        new_df["events_count"] = (
+            pd.to_numeric(new_df["events_count"], errors="coerce").fillna(0).astype(int)
+        )
+        parts = [new_df[["date", "events_count"]]]
+        if out.exists():
+            parts.insert(0, pd.read_parquet(out))
+        merged = (
+            pd.concat(parts, ignore_index=True)
+            .groupby("date")["events_count"]
+            .sum()
+            .reset_index()
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        merged.to_parquet(out, index=False)
+
+    fetched_any = False
+    for period in months:
+        period_key = str(period)
+        if period_key in existing:
+            logger.info("[backfill-events-counts] Skipping {} (already fetched)", period_key)
+            continue
+
+        mo_start = period.start_time.strftime("%Y-%m-%dT00:00:00")
+        mo_end = period.end_time.strftime("%Y-%m-%dT23:59:59")
+        params = {
+            "$select": "date_trunc_ymd(start_date_time) AS event_date, count(*) AS events_count",
+            "$where": f"start_date_time >= '{mo_start}' AND start_date_time <= '{mo_end}'",
+            "$group": "event_date",
+            "$order": "event_date ASC",
+            "$limit": "100",
+        }
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "[backfill-events-counts] Fetching {} (attempt {})", period_key, attempt
+                )
+                resp = requests.get(url, params=params, headers=headers, timeout=240)
+                resp.raise_for_status()
+                month_rows = resp.json()
+                if month_rows:
+                    _save(month_rows)
+                    existing.add(period_key)
+                    fetched_any = True
+                break
+            except requests.exceptions.Timeout:
+                if attempt == 3:
+                    logger.error(
+                        "[backfill-events-counts] {} timed out after 3 attempts", period_key
+                    )
+                    raise
+                logger.warning("[backfill-events-counts] Timeout on {}; retrying…", period_key)
+
+    if not fetched_any and not out.exists():
+        click.echo("No data returned — check date range or network.")
         return
 
-    bronze_path = write_ndjson_snapshot(Config.BRONZE_DIR, "nyc_permitted_events", rows)
-    click.echo(f"Bronze snapshot: {bronze_path}  ({len(rows)} rows)")
-
-    processor = PermittedEventsSilverProcessor()
-    stats = processor.process_bronze_tree(
-        bronze_root=Config.BRONZE_DIR / "nyc_permitted_events",
-        destination=Config.SILVER_DIR / "events",
-    )
-    click.echo(
-        f"Silver: files={stats.files_processed} rows_in={stats.rows_read}"
-        f" rows_out={stats.rows_written} dropped={stats.rows_dropped}"
-    )
+    df = pd.read_parquet(out)
+    click.echo(f"Saved {len(df)} daily rows to {out}")
+    if not df.empty:
+        click.echo(f"Date range: {df['date'].min().date()} -> {df['date'].max().date()}")
+        click.echo(
+            f"events_count range: {df['events_count'].min()} - {df['events_count'].max()}"
+            f"  (median {int(df['events_count'].median())})"
+        )
 
 
 @cli.command("train-model")
@@ -638,7 +694,8 @@ def train_model(start_date: str, end_date: str) -> None:
     dataset_path = Config.GOLD_DIR / "ml_training" / "ml_dataset.parquet"
     model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
 
-    build_ml_dataset(Config.SILVER_DIR, dataset_path, start_date, end_date)
+    events_counts_path = Config.GOLD_DIR / "ml_training" / "events_historical_counts.parquet"
+    build_ml_dataset(Config.SILVER_DIR, dataset_path, start_date, end_date, events_counts_path)
     results = train_classifier(dataset_path, model_path)
 
     click.echo(f"\nTrain size: {results['train_size']}  Test size: {results['test_size']}")

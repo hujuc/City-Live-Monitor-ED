@@ -112,6 +112,7 @@ def build_ml_dataset(
     output_path: Path,
     start_date: str = "2024-06-01",
     end_date: str = "2026-05-27",
+    events_counts_path: Path | None = None,
 ) -> pd.DataFrame:
     """Build an ML-ready daily dataset from Silver Noise311, Events, and TLC.
 
@@ -126,12 +127,31 @@ def build_ml_dataset(
     Raw columns kept for the trainer:
       noise_complaints  — used to compute binary target on train set
       taxi_trips        — unimputed; trainer imputes from train median
+
+    events_counts_path: optional path to a pre-aggregated parquet with columns
+      [date (UTC), events_count] produced by the backfill-events-daily-counts
+      command. When provided, it is merged with (and overrides) Silver events.
     """
     start = pd.Timestamp(start_date, tz="UTC")
     end = pd.Timestamp(end_date + "T23:59:59", tz="UTC")
 
     noise_df = _load_noise_silver(silver_root / "noise311", start, end)
     events_df = _load_events_silver(silver_root / "events", start, end)
+
+    if events_counts_path is not None and events_counts_path.exists():
+        hist = pd.read_parquet(events_counts_path)
+        hist["date"] = pd.to_datetime(hist["date"], utc=True)
+        hist = hist[(hist["date"] >= start) & (hist["date"] <= end)]
+        if not hist.empty:
+            combined = (
+                pd.concat([events_df, hist[["date", "events_count"]]], ignore_index=True)
+                .groupby("date")["events_count"]
+                .sum()
+                .reset_index()
+            )
+            events_df = combined
+            logger.info("[ml_dataset] Merged historical events counts: {} daily records", len(hist))
+
     taxi_df = _load_tlc_silver(silver_root / "tlc/yellow", start, end)
 
     df = noise_df.copy()
