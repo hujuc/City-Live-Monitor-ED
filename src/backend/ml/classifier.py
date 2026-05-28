@@ -165,8 +165,6 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
             learning_rate=0.05,
             min_samples_leaf=20,
             l2_regularization=1.0,
-            early_stopping=True,
-            validation_fraction=0.1,
             random_state=42,
         )
         clf_fold.fit(xf_train, yf_train)
@@ -201,7 +199,7 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         model, x_test, y_test, n_repeats=10, random_state=42, n_jobs=-1, scoring="roc_auc"
     )
     importances = {
-        feat: float(imp) for feat, imp in zip(FEATURE_COLS, perm.importances_mean, strict=False)
+        feat: float(imp) for feat, imp in zip(FEATURE_COLS, perm.importances_mean, strict=True)
     }
 
     logger.info("[ml] Test accuracy: {:.2f}%", report["accuracy"] * 100)
