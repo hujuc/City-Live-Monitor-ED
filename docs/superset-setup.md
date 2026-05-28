@@ -138,84 +138,70 @@ ORDER BY total DESC;
 Run the classifier and generate predictions before opening Superset:
 
 ```bash
-uv run clm predict-activity          # today + 7-day forecast (default)
-uv run clm predict-activity --horizon 0   # today only, no forecast
+uv run clm predict-activity   # today + 7-day forecast (default)
 ```
 
-This writes `data/gold/ml_prediction/daily_prediction.parquet` and prints today's prediction plus the 7-day forecast table to the terminal. Re-run whenever you want fresh predictions (e.g., after retraining the model or ingesting new data).
+This writes `data/gold/ml_prediction/daily_prediction.parquet`. Re-run after retraining or ingesting new data.
 
 Register two datasets in Superset:
 
-- **Data → Datasets → + Dataset**, Database: `gold_duckdb`, Table: `activity_prediction` (historical + forecast, `is_forecast` column distinguishes them)
-- Same flow, Table: `activity_forecast` (forecast rows only — next 7 days)
+- **Data → Datasets → + Dataset**, Database: `gold_duckdb`, Table: `activity_prediction`
+- Same flow, Table: `activity_forecast` (forecast rows only — next 7 days, includes `day_name`)
 
-### Chart 4.1: Today's prediction (Big Number)
+### Chart 4.1: Today's confidence (Big Number)
 
 Visualization: **Big Number with Trendline**
-
-- Metric: `MAX(probability)`
-- Time column: `date`
-- Time grain: Day
-- Add filter: `date = CURRENT_DATE`
-- Subheader: `activity_label` (use a custom label expression or a separate **Big Number** chart below)
-
-### Chart 4.2: Activity label — High or Low (Big Number)
-
-Visualization: **Big Number**
 
 Virtual dataset SQL:
 
 ```sql
 SELECT
     date,
-    activity_label,
-    ROUND(probability * 100, 1) AS pct
-FROM activity_prediction
-WHERE date = (SELECT MAX(date) FROM activity_prediction)
-```
-
-- Metric: `MAX(pct)` (shows probability as a percentage)
-- Add a Markdown chart alongside it with the label text if Superset's Big Number doesn't support string metrics.
-
-### Chart 4.3: Prediction history (Line chart)
-
-Visualization: **Line chart**
-
-- Dataset: `activity_prediction`, filter `is_forecast = false`
-- X: `date`, Y: `MAX(probability)`
-- Time grain: Day
-- Shows the model's confidence over historical dates — useful for spotting seasonal patterns.
-
-### Chart 4.4: High-activity days calendar
-
-Visualization: **Calendar Heatmap**, virtual dataset SQL:
-
-```sql
-SELECT date, probability
+    ROUND(probability * 100, 1) AS confidence_pct
 FROM activity_prediction
 WHERE is_forecast = false
-ORDER BY date
+  AND date = (SELECT MAX(date) FROM activity_prediction WHERE NOT is_forecast)
 ```
 
-- Date column: `date`
-- Metric: `MAX(probability)`
+- Metric: `MAX(confidence_pct)`
+- Subheader: static text `"% confidence — High Activity"` or `"% confidence — Low Activity"`
 
-### Chart 4.5: 7-Day forecast (Table)
-
-Visualization: **Table**
-
-- Dataset: `activity_forecast`
-- Columns: `date`, `activity_label`, `probability`
-- Sort by `date` ascending
-- Shows the model's next-7-day outlook based on calendar features and recent noise trends.
-
-### Chart 4.6: 7-Day forecast (Bar chart)
+### Chart 4.2: 7-Day forecast (Bar chart) — main view
 
 Visualization: **Bar chart**
 
 - Dataset: `activity_forecast`
+- X: `date` (Time grain: Day), Y: `MAX(probability)`
+- Color/series: `activity_label`
+- Bar colors: red for High Activity, blue for Low Activity
+- This is the centrepiece — shows the full week at a glance with confidence per day.
+
+### Chart 4.3: 7-Day forecast detail (Table)
+
+Visualization: **Table**
+
+- Dataset: `activity_forecast`
+- Columns: `day_name`, `date`, `activity_label`, `probability`
+- Sort by `date` ascending
+- Conditional formatting: highlight `activity_label = "High Activity"` rows
+
+### Chart 4.4: Recent trend (Line chart)
+
+Visualization: **Line chart**
+
+Virtual dataset SQL:
+
+```sql
+SELECT date, probability, activity_label, is_forecast
+FROM activity_prediction
+WHERE date >= CURRENT_DATE - INTERVAL 14 DAY
+ORDER BY date
+```
+
 - X: `date`, Y: `MAX(probability)`
-- Color by `activity_label` (High Activity / Low Activity)
+- Color/series: `is_forecast` (two series: actual vs. forecast)
+- Time grain: Day
+- Gives context: are the next 7 days unusual compared to the last two weeks?
 
 ---
 
