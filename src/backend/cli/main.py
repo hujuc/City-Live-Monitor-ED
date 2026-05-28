@@ -640,7 +640,7 @@ def backfill_noise311_daily_counts(start_date: str, end_date: str) -> None:
         mo_end = period.end_time.strftime("%Y-%m-%dT23:59:59")
         params = {
             "$select": "date_trunc_ymd(created_date) AS complaint_date, count(*) AS noise_count",
-            "$where": f"created_date >= '{mo_start}' AND created_date <= '{mo_end}'",
+            "$where": f"complaint_type like 'Noise%' AND created_date >= '{mo_start}' AND created_date <= '{mo_end}'",
             "$group": "complaint_date",
             "$order": "complaint_date ASC",
             "$limit": "40",
