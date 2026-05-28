@@ -132,6 +132,35 @@ def test_build_ml_dataset(tmp_path: Path):
     assert (df["events_count"] >= 0).all()
 
 
+def test_build_ml_dataset_with_noise_counts(tmp_path: Path):
+    silver_root = tmp_path / "silver"
+    _make_noise_silver_parquet(silver_root, 2024, 6, n=80)
+
+    hist = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-06-01", periods=10, tz="UTC"),
+            "noise_complaints": [200] * 10,
+        }
+    )
+    noise_counts_path = tmp_path / "noise311_historical_counts.parquet"
+    hist.to_parquet(noise_counts_path, index=False)
+
+    output = tmp_path / "ml_dataset.parquet"
+    df = build_ml_dataset(
+        silver_root,
+        output,
+        start_date="2023-06-01",
+        end_date="2024-06-30",
+        noise_counts_path=noise_counts_path,
+    )
+
+    assert len(df) >= 10
+    assert (df["noise_complaints"] >= 0).all()
+    historical_rows = df[df["date"] < pd.Timestamp("2024-06-01", tz="UTC")]
+    assert len(historical_rows) == 10
+    assert (historical_rows["noise_complaints"] == 200).all()
+
+
 def test_build_ml_dataset_events_zero_when_missing(tmp_path: Path):
     silver_root = tmp_path / "silver"
     _make_noise_silver_parquet(silver_root, 2024, 6, n=80)

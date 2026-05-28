@@ -571,16 +571,125 @@ def summary() -> None:
         console.print(cp_table)
 
 
-@cli.command("backfill-events-daily-counts")
+@cli.command("backfill-noise311-daily-counts")
 @click.option(
     "--start-date",
-    default="2024-06-01",
+    default="2023-01-01",
     show_default=True,
     help="Inclusive start date (YYYY-MM-DD)",
 )
 @click.option(
     "--end-date",
-    default="2026-05-27",
+    default="2024-05-31",
+    show_default=True,
+    help="Inclusive end date (YYYY-MM-DD)",
+)
+def backfill_noise311_daily_counts(start_date: str, end_date: str) -> None:
+    """Fetch per-day noise311 complaint counts from erm2-nwe9 via Socrata aggregation.
+
+    Uses server-side grouping (one row per day) instead of fetching individual
+    complaint records. Output is saved to
+    data/gold/ml_training/noise311_historical_counts.parquet and is picked up
+    automatically by the train-model command to extend training data before Jun 2024.
+    """
+    import pandas as pd
+    import requests
+
+    url = Config.NOISE311_API_URL
+    headers = {"X-App-Token": Config.SOCRATA_APP_TOKEN} if Config.SOCRATA_APP_TOKEN else {}
+
+    out = Config.GOLD_DIR / "ml_training" / "noise311_historical_counts.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: set[str] = set()
+    if out.exists():
+        prev = pd.read_parquet(out)
+        existing = set(prev["date"].dt.strftime("%Y-%m"))
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    months = pd.period_range(start=start_ts, end=end_ts, freq="M")
+
+    def _save(rows: list[dict]) -> None:
+        new_df = pd.DataFrame(rows)
+        new_df["date"] = pd.to_datetime(new_df["complaint_date"], utc=True)
+        new_df["noise_complaints"] = (
+            pd.to_numeric(new_df["noise_count"], errors="coerce").fillna(0).astype(int)
+        )
+        parts = [new_df[["date", "noise_complaints"]]]
+        if out.exists():
+            parts.insert(0, pd.read_parquet(out))
+        merged = (
+            pd.concat(parts, ignore_index=True)
+            .groupby("date")["noise_complaints"]
+            .sum()
+            .reset_index()
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        merged.to_parquet(out, index=False)
+
+    fetched_any = False
+    for period in months:
+        period_key = str(period)
+        if period_key in existing:
+            logger.info("[backfill-noise311-counts] Skipping {} (already fetched)", period_key)
+            continue
+
+        mo_start = period.start_time.strftime("%Y-%m-%dT00:00:00")
+        mo_end = period.end_time.strftime("%Y-%m-%dT23:59:59")
+        params = {
+            "$select": "date_trunc_ymd(created_date) AS complaint_date, count(*) AS noise_count",
+            "$where": f"created_date >= '{mo_start}' AND created_date <= '{mo_end}'",
+            "$group": "complaint_date",
+            "$order": "complaint_date ASC",
+            "$limit": "40",
+        }
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "[backfill-noise311-counts] Fetching {} (attempt {})", period_key, attempt
+                )
+                resp = requests.get(url, params=params, headers=headers, timeout=240)
+                resp.raise_for_status()
+                month_rows = resp.json()
+                if month_rows:
+                    _save(month_rows)
+                    existing.add(period_key)
+                    fetched_any = True
+                break
+            except requests.exceptions.Timeout:
+                if attempt == 3:
+                    logger.error(
+                        "[backfill-noise311-counts] {} timed out after 3 attempts", period_key
+                    )
+                    raise
+                logger.warning("[backfill-noise311-counts] Timeout on {}; retrying…", period_key)
+
+    if not fetched_any and not out.exists():
+        click.echo("No data returned — check date range or network.")
+        return
+
+    df = pd.read_parquet(out)
+    click.echo(f"Saved {len(df)} daily rows to {out}")
+    if not df.empty:
+        click.echo(f"Date range: {df['date'].min().date()} -> {df['date'].max().date()}")
+        click.echo(
+            f"noise_complaints range: {df['noise_complaints'].min()} - {df['noise_complaints'].max()}"
+            f"  (median {int(df['noise_complaints'].median())})"
+        )
+
+
+@cli.command("backfill-events-daily-counts")
+@click.option(
+    "--start-date",
+    default="2023-01-01",
+    show_default=True,
+    help="Inclusive start date (YYYY-MM-DD)",
+)
+@click.option(
+    "--end-date",
+    default="2026-05-28",
     show_default=True,
     help="Inclusive end date (YYYY-MM-DD)",
 )
@@ -684,8 +793,8 @@ def backfill_events_daily_counts(start_date: str, end_date: str) -> None:
 
 
 @cli.command("train-model")
-@click.option("--start-date", default="2024-06-01", show_default=True, help="Training window start")
-@click.option("--end-date", default="2026-05-27", show_default=True, help="Training window end")
+@click.option("--start-date", default="2023-01-01", show_default=True, help="Training window start")
+@click.option("--end-date", default="2026-05-28", show_default=True, help="Training window end")
 def train_model(start_date: str, end_date: str) -> None:
     """Build ML training dataset from Silver and train an activity classifier."""
     from backend.ml.classifier import train_classifier
@@ -695,7 +804,10 @@ def train_model(start_date: str, end_date: str) -> None:
     model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
 
     events_counts_path = Config.GOLD_DIR / "ml_training" / "events_historical_counts.parquet"
-    build_ml_dataset(Config.SILVER_DIR, dataset_path, start_date, end_date, events_counts_path)
+    noise_counts_path = Config.GOLD_DIR / "ml_training" / "noise311_historical_counts.parquet"
+    build_ml_dataset(
+        Config.SILVER_DIR, dataset_path, start_date, end_date, events_counts_path, noise_counts_path
+    )
     results = train_classifier(dataset_path, model_path)
 
     click.echo(f"\nTrain size: {results['train_size']}  Test size: {results['test_size']}")

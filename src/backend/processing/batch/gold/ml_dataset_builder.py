@@ -110,9 +110,10 @@ def _load_events_silver(events_root: Path, start: pd.Timestamp, end: pd.Timestam
 def build_ml_dataset(
     silver_root: Path,
     output_path: Path,
-    start_date: str = "2024-06-01",
-    end_date: str = "2026-05-27",
+    start_date: str = "2023-01-01",
+    end_date: str = "2026-05-28",
     events_counts_path: Path | None = None,
+    noise_counts_path: Path | None = None,
 ) -> pd.DataFrame:
     """Build an ML-ready daily dataset from Silver Noise311, Events, and TLC.
 
@@ -131,14 +132,29 @@ def build_ml_dataset(
       noise_complaints  — used to compute binary target on train set
       taxi_trips        — unimputed; trainer imputes from train median
 
-    events_counts_path: optional path to a pre-aggregated parquet with columns
-      [date (UTC), events_count] produced by the backfill-events-daily-counts
-      command. When provided, it is merged with (and overrides) Silver events.
+    events_counts_path: optional pre-aggregated parquet [date (UTC), events_count]
+      from backfill-events-daily-counts. Merged with (summed over) Silver events.
+    noise_counts_path: optional pre-aggregated parquet [date (UTC), noise_complaints]
+      from backfill-noise311-daily-counts. Merged with (summed over) Silver noise311.
     """
     start = pd.Timestamp(start_date, tz="UTC")
     end = pd.Timestamp(end_date + "T23:59:59", tz="UTC")
 
     noise_df = _load_noise_silver(silver_root / "noise311", start, end)
+
+    if noise_counts_path is not None and noise_counts_path.exists():
+        hist = pd.read_parquet(noise_counts_path)
+        hist["date"] = pd.to_datetime(hist["date"], utc=True)
+        hist = hist[(hist["date"] >= start) & (hist["date"] <= end)]
+        if not hist.empty:
+            noise_df = (
+                pd.concat([noise_df, hist[["date", "noise_complaints"]]], ignore_index=True)
+                .groupby("date")["noise_complaints"]
+                .sum()
+                .reset_index()
+            )
+            logger.info("[ml_dataset] Merged historical noise counts: {} daily records", len(hist))
+
     events_df = _load_events_silver(silver_root / "events", start, end)
 
     if events_counts_path is not None and events_counts_path.exists():
