@@ -28,10 +28,14 @@ superset init
 
 echo "[bootstrap] Creating DuckDB views over Gold Parquet files…"
 /app/.venv/bin/python - <<PY
-import duckdb
+import re, duckdb
 con = duckdb.connect("$DUCKDB_FILE")
 with open("/app/init_gold_views.sql") as f:
-    con.execute(f.read())
+    sql = f.read()
+# duckdb.execute() handles one statement at a time; split on statement boundaries
+statements = [s.strip() for s in re.split(r";\s*\n", sql) if s.strip()]
+for stmt in statements:
+    con.execute(stmt)
 print("Views:", [r[0] for r in con.execute("SHOW TABLES").fetchall()])
 con.close()
 PY
