@@ -834,5 +834,29 @@ def train_model(start_date: str, end_date: str) -> None:
         click.echo(f"  {feat:30s} {imp:.4f}  {bar}")
 
 
+@cli.command("predict-activity")
+def predict_activity() -> None:
+    """Run the trained classifier on the ML dataset and write daily predictions to Gold."""
+    from backend.ml.predict import generate_predictions
+
+    dataset_path = Config.GOLD_DIR / "ml_training" / "ml_dataset.parquet"
+    model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
+    output_path = Config.GOLD_DIR / "ml_prediction" / "daily_prediction.parquet"
+
+    result = generate_predictions(dataset_path, model_path, output_path)
+
+    label = result["activity_label"]
+    prob = result["probability"]
+    target_date = result["date"]
+    if hasattr(target_date, "date"):
+        target_date = target_date.date()
+
+    click.echo(f"\n{'━' * 42}")
+    click.echo(f"  Date        : {target_date}")
+    click.echo(f"  Prediction  : {label}")
+    click.echo(f"  Probability : {prob:.1%}")
+    click.echo(f"{'━' * 42}")
+
+
 if __name__ == "__main__":
     cli()
