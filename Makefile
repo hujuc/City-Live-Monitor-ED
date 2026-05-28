@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build gold-build-star-schema report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports docker-up docker-down docker-ps health clean clean-silver-gold demo-summary
+.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build gold-build-star-schema report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports train-model predict ml-refresh docker-up docker-down docker-ps health clean clean-silver-gold demo-summary
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -127,6 +127,30 @@ pipeline: silver-all gold-build
 
 # Regenerate markdown reports
 reports: report-data-profiling report-processing
+
+# ── ML pipeline ─────────────────────────────────────────────────────────────
+
+# Build ML dataset + train classifier (full retrain)
+train-model:
+	uv run clm train-model
+
+# Generate predictions from the current trained model (no retrain)
+predict:
+	uv run clm predict-activity
+
+# Daily refresh: pull recent noise counts → rebuild ML dataset → predict
+# Use TODAY variable to override end date, e.g.: make ml-refresh TODAY=2026-05-28
+TODAY ?= $(shell date -u +%Y-%m-%d)
+ml-refresh:
+	uv run clm backfill-noise311-daily-counts --start-date $(TODAY) --end-date $(TODAY)
+	uv run python -c "\
+from pathlib import Path; \
+from backend.processing.batch.gold.ml_dataset_builder import build_ml_dataset; \
+from config.settings import Config; \
+build_ml_dataset(Config.SILVER_DIR, Config.GOLD_DIR/'ml_training'/'ml_dataset.parquet', \
+    events_counts_path=Config.GOLD_DIR/'ml_training'/'events_historical_counts.parquet', \
+    noise_counts_path=Config.GOLD_DIR/'ml_training'/'noise311_historical_counts.parquet')"
+	uv run clm predict-activity
 
 # ── Docker orchestration ────────────────────────────────────────────────────
 

@@ -7,8 +7,9 @@ and persists 5-minute rolling metrics into a Gold table.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -138,7 +139,7 @@ class KafkaAggregateRunner:
     def _decode_message_value(self, value: Any) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
-        if isinstance(value, (bytes, bytearray)):
+        if isinstance(value, bytes | bytearray):
             return json.loads(value.decode("utf-8"))
         if isinstance(value, str):
             return json.loads(value)

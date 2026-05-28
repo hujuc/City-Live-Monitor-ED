@@ -14,7 +14,8 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import UTC, datetime as dt
+from datetime import UTC
+from datetime import datetime as dt
 from pathlib import Path
 
 import requests

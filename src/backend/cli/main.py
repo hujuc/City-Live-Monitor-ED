@@ -42,7 +42,7 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
         console.print(Panel(command.help, title="Description", border_style="cyan"))
 
     usage_parts: list[str] = [ctx.command_path]
-    if isinstance(command, click.MultiCommand): # type: ignore[arg-type]
+    if isinstance(command, click.MultiCommand):  # type: ignore[arg-type]
         usage_parts.append("[OPTIONS] COMMAND [ARGS]...")
     else:
         usage_parts.extend(command.collect_usage_pieces(ctx))
@@ -90,10 +90,10 @@ def _render_rich_help(command: click.Command, ctx: click.Context, show_commands:
             Panel(opt_table, title="[bold green]Options[/bold green]", border_style="green")
         )
 
-    if show_commands and isinstance(command, click.MultiCommand): # type: ignore[arg-type]
+    if show_commands and isinstance(command, click.MultiCommand):  # type: ignore[arg-type]
         command_rows: list[tuple[str, str]] = []
-        for cmd_name in command.list_commands(ctx): # type: ignore[arg-type]
-            sub = command.get_command(ctx, cmd_name) # type: ignore[arg-type]
+        for cmd_name in command.list_commands(ctx):  # type: ignore[arg-type]
+            sub = command.get_command(ctx, cmd_name)  # type: ignore[arg-type]
             if not sub:
                 continue
             short_help = sub.get_short_help_str()
@@ -413,7 +413,7 @@ def backfill_ndjson_meta(dry_run: bool) -> None:
         for ndjson_path in sorted(source_dir.rglob("*.ndjson")):
             # Check first row only to decide whether to process
             with ndjson_path.open(encoding="utf-8") as fh:
-                first = next((json.loads(l) for l in fh if l.strip()), None)
+                first = next((json.loads(line) for line in fh if line.strip()), None)
             if first is None or "_ingestion_timestamp" in first:
                 skipped += 1
                 continue
@@ -422,7 +422,9 @@ def backfill_ndjson_meta(dry_run: bool) -> None:
             ingestion_ts = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
             if dry_run:
-                logger.info("[backfill-ndjson] would patch {} (ts={})", ndjson_path.name, ingestion_ts)
+                logger.info(
+                    "[backfill-ndjson] would patch {} (ts={})", ndjson_path.name, ingestion_ts
+                )
                 patched += 1
                 continue
 
@@ -455,9 +457,7 @@ def validate_bronze() -> None:
     ]
 
     all_valid = all(r.is_valid for r in results)
-    total_issues = sum(
-        len(r.missing_timestamp_files) + len(r.schema_drift_files) for r in results
-    )
+    total_issues = sum(len(r.missing_timestamp_files) + len(r.schema_drift_files) for r in results)
     logger.info(
         "[cli] validate-bronze finished: sources={} valid={} issues={}",
         len(results),
@@ -569,6 +569,307 @@ def summary() -> None:
         for cp in checkpoints:
             cp_table.add_row(cp.name, cp.read_text().strip())
         console.print(cp_table)
+
+
+@cli.command("backfill-noise311-daily-counts")
+@click.option(
+    "--start-date",
+    default="2023-01-01",
+    show_default=True,
+    help="Inclusive start date (YYYY-MM-DD)",
+)
+@click.option(
+    "--end-date",
+    default="2024-05-31",
+    show_default=True,
+    help="Inclusive end date (YYYY-MM-DD)",
+)
+def backfill_noise311_daily_counts(start_date: str, end_date: str) -> None:
+    """Fetch per-day noise311 complaint counts from erm2-nwe9 via Socrata aggregation.
+
+    Uses server-side grouping (one row per day) instead of fetching individual
+    complaint records. Output is saved to
+    data/gold/ml_training/noise311_historical_counts.parquet and is picked up
+    automatically by the train-model command to extend training data before Jun 2024.
+    """
+    import pandas as pd
+    import requests
+
+    url = Config.NOISE311_API_URL
+    headers = {"X-App-Token": Config.SOCRATA_APP_TOKEN} if Config.SOCRATA_APP_TOKEN else {}
+
+    out = Config.GOLD_DIR / "ml_training" / "noise311_historical_counts.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: set[str] = set()
+    if out.exists():
+        prev = pd.read_parquet(out)
+        existing = set(prev["date"].dt.strftime("%Y-%m"))
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    months = pd.period_range(start=start_ts, end=end_ts, freq="M")
+
+    def _save(rows: list[dict]) -> None:
+        new_df = pd.DataFrame(rows)
+        new_df["date"] = pd.to_datetime(new_df["complaint_date"], utc=True)
+        new_df["noise_complaints"] = (
+            pd.to_numeric(new_df["noise_count"], errors="coerce").fillna(0).astype(int)
+        )
+        parts = [new_df[["date", "noise_complaints"]]]
+        if out.exists():
+            parts.insert(0, pd.read_parquet(out))
+        merged = (
+            pd.concat(parts, ignore_index=True)
+            .groupby("date")["noise_complaints"]
+            .sum()
+            .reset_index()
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        merged.to_parquet(out, index=False)
+
+    fetched_any = False
+    for period in months:
+        period_key = str(period)
+        if period_key in existing:
+            logger.info("[backfill-noise311-counts] Skipping {} (already fetched)", period_key)
+            continue
+
+        mo_start = period.start_time.strftime("%Y-%m-%dT00:00:00")
+        mo_end = period.end_time.strftime("%Y-%m-%dT23:59:59")
+        params = {
+            "$select": "date_trunc_ymd(created_date) AS complaint_date, count(*) AS noise_count",
+            "$where": f"complaint_type like 'Noise%' AND created_date >= '{mo_start}' AND created_date <= '{mo_end}'",
+            "$group": "complaint_date",
+            "$order": "complaint_date ASC",
+            "$limit": "40",
+        }
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "[backfill-noise311-counts] Fetching {} (attempt {})", period_key, attempt
+                )
+                resp = requests.get(url, params=params, headers=headers, timeout=240)
+                resp.raise_for_status()
+                month_rows = resp.json()
+                if month_rows:
+                    _save(month_rows)
+                    existing.add(period_key)
+                    fetched_any = True
+                break
+            except requests.exceptions.Timeout:
+                if attempt == 3:
+                    logger.error(
+                        "[backfill-noise311-counts] {} timed out after 3 attempts", period_key
+                    )
+                    raise
+                logger.warning("[backfill-noise311-counts] Timeout on {}; retrying…", period_key)
+
+    if not fetched_any and not out.exists():
+        click.echo("No data returned — check date range or network.")
+        return
+
+    df = pd.read_parquet(out)
+    click.echo(f"Saved {len(df)} daily rows to {out}")
+    if not df.empty:
+        click.echo(f"Date range: {df['date'].min().date()} -> {df['date'].max().date()}")
+        click.echo(
+            f"noise_complaints range: {df['noise_complaints'].min()} - {df['noise_complaints'].max()}"
+            f"  (median {int(df['noise_complaints'].median())})"
+        )
+
+
+@cli.command("backfill-events-daily-counts")
+@click.option(
+    "--start-date",
+    default="2023-01-01",
+    show_default=True,
+    help="Inclusive start date (YYYY-MM-DD)",
+)
+@click.option(
+    "--end-date",
+    default="2026-05-28",
+    show_default=True,
+    help="Inclusive end date (YYYY-MM-DD)",
+)
+def backfill_events_daily_counts(start_date: str, end_date: str) -> None:
+    """Fetch per-day event counts from bkfu-528j via Socrata aggregation and save to Gold.
+
+    Uses server-side grouping so only ~730 rows are transferred instead of
+    millions of individual permit records. Output is saved to
+    data/gold/ml_training/events_historical_counts.parquet and is picked up
+    automatically by the train-model command.
+    """
+    import pandas as pd
+    import requests
+
+    url = Config.EVENTS_HISTORICAL_API_URL
+    headers = {"X-App-Token": Config.SOCRATA_APP_TOKEN} if Config.SOCRATA_APP_TOKEN else {}
+
+    # The dataset has 32M rows — a single GROUP BY times out; query month-by-month instead.
+    # Results are checkpointed so a restart skips already-fetched months.
+    out = Config.GOLD_DIR / "ml_training" / "events_historical_counts.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: set[str] = set()
+    if out.exists():
+        prev = pd.read_parquet(out)
+        existing = set(prev["date"].dt.strftime("%Y-%m"))
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    months = pd.period_range(start=start_ts, end=end_ts, freq="M")
+
+    def _save(rows: list[dict]) -> None:
+        """Merge new rows into the parquet and write atomically."""
+        new_df = pd.DataFrame(rows)
+        new_df["date"] = pd.to_datetime(new_df["event_date"], utc=True)
+        new_df["events_count"] = (
+            pd.to_numeric(new_df["events_count"], errors="coerce").fillna(0).astype(int)
+        )
+        parts = [new_df[["date", "events_count"]]]
+        if out.exists():
+            parts.insert(0, pd.read_parquet(out))
+        merged = (
+            pd.concat(parts, ignore_index=True)
+            .groupby("date")["events_count"]
+            .sum()
+            .reset_index()
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        merged.to_parquet(out, index=False)
+
+    fetched_any = False
+    for period in months:
+        period_key = str(period)
+        if period_key in existing:
+            logger.info("[backfill-events-counts] Skipping {} (already fetched)", period_key)
+            continue
+
+        mo_start = period.start_time.strftime("%Y-%m-%dT00:00:00")
+        mo_end = period.end_time.strftime("%Y-%m-%dT23:59:59")
+        params = {
+            "$select": "date_trunc_ymd(start_date_time) AS event_date, count(*) AS events_count",
+            "$where": f"start_date_time >= '{mo_start}' AND start_date_time <= '{mo_end}'",
+            "$group": "event_date",
+            "$order": "event_date ASC",
+            "$limit": "100",
+        }
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "[backfill-events-counts] Fetching {} (attempt {})", period_key, attempt
+                )
+                resp = requests.get(url, params=params, headers=headers, timeout=240)
+                resp.raise_for_status()
+                month_rows = resp.json()
+                if month_rows:
+                    _save(month_rows)
+                    existing.add(period_key)
+                    fetched_any = True
+                break
+            except requests.exceptions.Timeout:
+                if attempt == 3:
+                    logger.error(
+                        "[backfill-events-counts] {} timed out after 3 attempts", period_key
+                    )
+                    raise
+                logger.warning("[backfill-events-counts] Timeout on {}; retrying…", period_key)
+
+    if not fetched_any and not out.exists():
+        click.echo("No data returned — check date range or network.")
+        return
+
+    df = pd.read_parquet(out)
+    click.echo(f"Saved {len(df)} daily rows to {out}")
+    if not df.empty:
+        click.echo(f"Date range: {df['date'].min().date()} -> {df['date'].max().date()}")
+        click.echo(
+            f"events_count range: {df['events_count'].min()} - {df['events_count'].max()}"
+            f"  (median {int(df['events_count'].median())})"
+        )
+
+
+@cli.command("train-model")
+@click.option("--start-date", default="2023-01-01", show_default=True, help="Training window start")
+@click.option("--end-date", default="2026-05-28", show_default=True, help="Training window end")
+def train_model(start_date: str, end_date: str) -> None:
+    """Build ML training dataset from Silver and train an activity classifier."""
+    from backend.ml.classifier import train_classifier
+    from backend.processing.batch.gold.ml_dataset_builder import build_ml_dataset
+
+    dataset_path = Config.GOLD_DIR / "ml_training" / "ml_dataset.parquet"
+    model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
+
+    events_counts_path = Config.GOLD_DIR / "ml_training" / "events_historical_counts.parquet"
+    noise_counts_path = Config.GOLD_DIR / "ml_training" / "noise311_historical_counts.parquet"
+    build_ml_dataset(
+        Config.SILVER_DIR, dataset_path, start_date, end_date, events_counts_path, noise_counts_path
+    )
+    results = train_classifier(dataset_path, model_path)
+
+    click.echo(f"\nTrain size: {results['train_size']}  Test size: {results['test_size']}")
+    click.echo(f"Threshold : {results['threshold']:.0f} complaints/day (training median)")
+    click.echo("\nRandom Forest (test set):")
+    click.echo(f"  Accuracy : {results['accuracy']:.2%}")
+    click.echo(f"  Precision: {results['precision']:.3f}")
+    click.echo(f"  Recall   : {results['recall']:.3f}")
+    click.echo(f"  F1       : {results['f1']:.3f}")
+    click.echo(f"  ROC-AUC  : {results['roc_auc']:.3f}")
+    click.echo(
+        f"\nCV ROC-AUC (TimeSeriesSplit n=5): {results['cv_mean']:.3f} ± {results['cv_std']:.3f}"
+    )
+    click.echo(f"  Folds: {[f'{s:.3f}' for s in results['cv_scores']]}")
+
+    click.echo("\nBaselines:")
+    for name, b in results["baselines"].items():
+        auc = f"  ROC-AUC={b['roc_auc']:.3f}" if "roc_auc" in b else ""
+        click.echo(f"  {name:22s}  acc={b['accuracy']:.2%}  f1={b['f1']:.3f}{auc}")
+
+    click.echo("\nFeature importances:")
+    for feat, imp in sorted(results["importances"].items(), key=lambda x: -x[1]):
+        bar = "█" * int(imp * 40)
+        click.echo(f"  {feat:30s} {imp:.4f}  {bar}")
+
+
+@cli.command("predict-activity")
+@click.option("--horizon", default=7, show_default=True, help="Number of future days to forecast.")
+def predict_activity(horizon: int) -> None:
+    """Run the trained classifier on the ML dataset and write daily predictions to Gold."""
+    from backend.ml.predict import generate_predictions
+
+    dataset_path = Config.GOLD_DIR / "ml_training" / "ml_dataset.parquet"
+    model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
+    output_path = Config.GOLD_DIR / "ml_prediction" / "daily_prediction.parquet"
+
+    result = generate_predictions(dataset_path, model_path, output_path, horizon=horizon)
+
+    today_pred = result["today"]
+    label = today_pred["activity_label"]
+    prob = today_pred["probability"]
+    target_date = today_pred["date"]
+    if hasattr(target_date, "date"):
+        target_date = target_date.date()
+
+    click.echo(f"\n{'━' * 42}")
+    click.echo(f"  Date        : {target_date}")
+    click.echo(f"  Prediction  : {label}")
+    click.echo(f"  Probability : {prob:.1%}")
+    click.echo(f"{'━' * 42}")
+
+    forecast = result.get("forecast", [])
+    if forecast:
+        click.echo("\n  7-Day Forecast")
+        click.echo(f"  {'Date':<12} {'Prediction':<18} {'Prob':>6}")
+        click.echo(f"  {'─' * 12} {'─' * 18} {'─' * 6}")
+        for row in forecast:
+            d = row["date"]
+            if hasattr(d, "date"):
+                d = d.date()
+            click.echo(f"  {str(d):<12} {row['activity_label']:<18} {row['probability']:>6.1%}")
+        click.echo()
 
 
 if __name__ == "__main__":

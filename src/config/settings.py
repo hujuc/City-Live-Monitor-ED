@@ -33,6 +33,10 @@ class Config:
     EVENTS_API_URL = os.getenv(
         "EVENTS_API_URL", "https://data.cityofnewyork.us/resource/tvpp-9vvx.json"
     )
+    EVENTS_HISTORICAL_API_URL = os.getenv(
+        "EVENTS_HISTORICAL_API_URL",
+        "https://data.cityofnewyork.us/resource/bkfu-528j.json",
+    )
     EVENTS_BACKFILL_START = os.getenv("EVENTS_BACKFILL_START", "2020-01-01T00:00:00")
     NOISE311_API_URL = os.getenv(
         "NOISE311_API_URL", "https://data.cityofnewyork.us/resource/erm2-nwe9.json"
