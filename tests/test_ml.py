@@ -51,19 +51,44 @@ def _make_ml_dataset(tmp_path: Path, n: int = 120) -> Path:
     rng = np.random.default_rng(42)
     dates = pd.date_range("2024-01-01", periods=n, tz="UTC")
     noise = rng.integers(1_000, 5_000, n).astype(float)
-    noise_7d = pd.Series(noise).shift(1).rolling(7, min_periods=3).mean().round(1).values
+    noise_s = pd.Series(noise)
+    noise_7d = noise_s.shift(1).rolling(7, min_periods=3).mean().round(1).values
+    noise_14d = noise_s.shift(1).rolling(14, min_periods=7).mean().round(1).values
+    noise_30d = noise_s.shift(1).rolling(30, min_periods=15).mean().round(1).values
+    noise_rank30d = noise_s.shift(1).rolling(30, min_periods=15).rank(pct=True).round(3).values
+    month_s = pd.Series(dates.month)
+    dow_vals = dates.dayofweek
+    temp = pd.DataFrame({"day_of_week": dow_vals, "noise_complaints": noise})
+    noise_dow = (
+        temp.groupby("day_of_week")["noise_complaints"]
+        .transform(lambda s: s.shift(1).expanding(min_periods=4).mean().round(1))
+        .values
+    )
+    doy = pd.Series(dates.dayofyear)
     df = pd.DataFrame(
         {
             "date": dates,
             "noise_complaints": noise,
             "taxi_trips": np.where(rng.random(n) < 0.1, np.nan, rng.integers(50_000, 200_000, n)),
             "events_count": rng.integers(0, 50, n),
-            "day_of_week": rng.integers(0, 7, n),
-            "month": rng.integers(1, 13, n),
-            "is_summer": rng.integers(0, 2, n),
-            "is_holiday_season": rng.integers(0, 2, n),
+            "day_of_week": dow_vals,
+            "month": dates.month,
+            "is_summer": month_s.isin([6, 7, 8]).astype(int).values,
+            "is_holiday_season": month_s.isin([11, 12, 1]).astype(int).values,
             "is_holiday": rng.integers(0, 2, n),
+            # Jan–Apr 2024: no outdoor/quiet holidays; Memorial Day is 28+ days out → cap=7
+            "is_outdoor_holiday": np.zeros(n, dtype=int),
+            "is_quiet_holiday": np.zeros(n, dtype=int),
+            "days_to_holiday": np.full(n, 7, dtype=int),
+            "sin_doy": np.sin(2 * np.pi * doy / 365.25).round(4).values,
+            "cos_doy": np.cos(2 * np.pi * doy / 365.25).round(4).values,
+            "sin_doy_2": np.sin(4 * np.pi * doy / 365.25).round(4).values,
+            "cos_doy_2": np.cos(4 * np.pi * doy / 365.25).round(4).values,
             "noise_7d_avg": noise_7d,
+            "noise_14d_avg": noise_14d,
+            "noise_30d_avg": noise_30d,
+            "noise_percentile_rank_30d": noise_rank30d,
+            "noise_dow_avg": noise_dow,
         }
     )
     path = tmp_path / "ml_dataset.parquet"
@@ -125,6 +150,15 @@ def test_build_ml_dataset(tmp_path: Path):
     assert "events_count" in df.columns
     assert "is_holiday" in df.columns
     assert "noise_7d_avg" in df.columns
+    assert "noise_14d_avg" in df.columns
+    assert "noise_30d_avg" in df.columns
+    assert "noise_percentile_rank_30d" in df.columns
+    assert "noise_dow_avg" in df.columns
+    assert "is_outdoor_holiday" in df.columns
+    assert "is_quiet_holiday" in df.columns
+    assert "days_to_holiday" in df.columns
+    assert "sin_doy" in df.columns
+    assert "cos_doy" in df.columns
     assert "taxi_trips" in df.columns
     assert "day_of_week" in df.columns
     # is_high_activity is NOT computed in the builder — computed in trainer only
@@ -194,7 +228,14 @@ def test_train_classifier_target_not_from_test(tmp_path: Path):
     dataset_path = _make_ml_dataset(tmp_path, n=120)
     df = pd.read_parquet(dataset_path)
     df = df.sort_values("date").reset_index(drop=True)
-    df_valid = df[df["noise_7d_avg"].notna()].reset_index(drop=True)
+    _rolling = [
+        "noise_7d_avg",
+        "noise_14d_avg",
+        "noise_30d_avg",
+        "noise_percentile_rank_30d",
+        "noise_dow_avg",
+    ]
+    df_valid = df[df[_rolling].notna().all(axis=1)].reset_index(drop=True)
     split = int(len(df_valid) * 0.8)
     expected_threshold = float(df_valid["noise_complaints"].iloc[:split].median())
 

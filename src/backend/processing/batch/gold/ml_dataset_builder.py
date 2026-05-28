@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import holidays as hol
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -123,10 +124,10 @@ def build_ml_dataset(
 
     Output columns:
       date, noise_complaints, taxi_trips, events_count,
-      day_of_week, month, is_holiday, noise_7d_avg
-
-    Also present but unused by the trainer (kept for exploratory use):
-      is_summer, is_holiday_season
+      day_of_week, month, is_summer, is_holiday_season, is_holiday,
+      is_outdoor_holiday, is_quiet_holiday, days_to_holiday,
+      sin_doy, cos_doy, sin_doy_2, cos_doy_2,
+      noise_7d_avg, noise_14d_avg, noise_30d_avg, noise_percentile_rank_30d, noise_dow_avg
 
     Raw columns kept for the trainer:
       noise_complaints  — used to compute binary target on train set
@@ -190,11 +191,36 @@ def build_ml_dataset(
     us_holidays = hol.US(years=years)
     df["is_holiday"] = df["date"].dt.date.isin(us_holidays).astype(int)
 
-    # ── Lag feature: 7-day rolling noise average (shift to avoid same-day leak) ─
-    df["noise_7d_avg"] = df["noise_complaints"].shift(1).rolling(7, min_periods=3).mean().round(1)
+    _outdoor = {"Independence Day", "Memorial Day", "Labor Day"}
+    _quiet = {"Thanksgiving", "Christmas Day"}
+    _outdoor_dates = {d for d, name in us_holidays.items() if name in _outdoor}
+    _quiet_dates = {d for d, name in us_holidays.items() if name in _quiet}
+    _major_sorted = sorted(_outdoor_dates | _quiet_dates)
+    df["is_outdoor_holiday"] = df["date"].dt.date.isin(_outdoor_dates).astype(int)
+    df["is_quiet_holiday"] = df["date"].dt.date.isin(_quiet_dates).astype(int)
+    df["days_to_holiday"] = df["date"].dt.date.apply(
+        lambda d: next((min((h - d).days, 7) for h in _major_sorted if h >= d), 7)
+    )
 
-    # ── Taxi trips with train-median imputation (done in trainer, stored raw here) ─
-    # taxi_trips stays as-is (NaN for 2026); trainer imputes from train median
+    doy = df["date"].dt.dayofyear
+    df["sin_doy"] = np.sin(2 * np.pi * doy / 365.25).round(4)
+    df["cos_doy"] = np.cos(2 * np.pi * doy / 365.25).round(4)
+    df["sin_doy_2"] = np.sin(4 * np.pi * doy / 365.25).round(4)
+    df["cos_doy_2"] = np.cos(4 * np.pi * doy / 365.25).round(4)
+
+    # ── Noise rolling features (shift to avoid same-day leak) ──────────────────
+    df["noise_7d_avg"] = df["noise_complaints"].shift(1).rolling(7, min_periods=3).mean().round(1)
+    df["noise_14d_avg"] = df["noise_complaints"].shift(1).rolling(14, min_periods=7).mean().round(1)
+    df["noise_30d_avg"] = (
+        df["noise_complaints"].shift(1).rolling(30, min_periods=15).mean().round(1)
+    )
+    df["noise_percentile_rank_30d"] = (
+        df["noise_complaints"].shift(1).rolling(30, min_periods=15).rank(pct=True).round(3)
+    )
+    df["noise_dow_avg"] = df.groupby("day_of_week")["noise_complaints"].transform(
+        lambda s: s.shift(1).expanding(min_periods=4).mean().round(1)
+    )
+    # taxi_trips stays raw (NaN for 2026); trainer imputes from train median
 
     has_events = (df["events_count"] > 0).sum()
     has_taxi = df["taxi_trips"].notna().sum()

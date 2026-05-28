@@ -16,12 +16,28 @@ from sklearn.preprocessing import StandardScaler
 
 FEATURE_COLS = [
     "day_of_week",
+    "dow_sin",
+    "dow_cos",
+    "is_weekend",
     "month",
-    "is_holiday",
+    "sin_doy",
+    "cos_doy",
+    "sin_doy_2",
+    "cos_doy_2",
+    "is_outdoor_holiday",
+    "is_quiet_holiday",
+    "days_to_holiday",
+    "noise_7d_avg",
+    "noise_14d_avg",
+    "noise_30d_avg",
+    "noise_percentile_rank_30d",
+    "noise_dow_avg",
     "events_count_log1p",
     "events_count_lag1",
-    "noise_7d_avg",
+    "weekend_events",
     "taxi_trips_filled",
+    "taxi_trips_lag1",
+    "taxi_trips_7d_avg",
 ]
 TARGET_COL = "is_high_activity"
 
@@ -65,7 +81,17 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     """Train a Random Forest on the ML dataset and save the model."""
     df = pd.read_parquet(dataset_path)
 
-    derived = {"taxi_trips_filled", "events_count_log1p", "events_count_lag1"}
+    derived = {
+        "taxi_trips_filled",
+        "events_count_log1p",
+        "events_count_lag1",
+        "dow_sin",
+        "dow_cos",
+        "is_weekend",
+        "taxi_trips_lag1",
+        "taxi_trips_7d_avg",
+        "weekend_events",
+    }
     required = ["noise_complaints", "taxi_trips", "events_count"] + [
         c for c in FEATURE_COLS if c not in derived
     ]
@@ -82,12 +108,25 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     train_taxi_median = float(df["taxi_trips"].iloc[:split].median())
     df["taxi_trips_filled"] = df["taxi_trips"].fillna(train_taxi_median)
 
-    # Derived features: log1p compresses permit-slot count variance; lag captures next-day spillover
+    # Derived features
     df["events_count_log1p"] = np.log1p(df["events_count"])
     df["events_count_lag1"] = df["events_count"].shift(1).fillna(0).astype(int)
+    df["dow_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
+    df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
+    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
+    df["taxi_trips_lag1"] = df["taxi_trips_filled"].shift(1)
+    df["taxi_trips_7d_avg"] = df["taxi_trips_filled"].shift(1).rolling(7, min_periods=3).mean()
+    df["weekend_events"] = df["is_weekend"] * df["events_count_log1p"]
 
-    # Drop rows where noise_7d_avg is NaN (first few rows lack rolling history)
-    valid = df["noise_7d_avg"].notna()
+    # Drop rows where any noise rolling feature is NaN (first ~30 rows lack rolling history)
+    _rolling_cols = [
+        "noise_7d_avg",
+        "noise_14d_avg",
+        "noise_30d_avg",
+        "noise_percentile_rank_30d",
+        "noise_dow_avg",
+    ]
+    valid = df[_rolling_cols].notna().all(axis=1)
     df = df[valid].reset_index(drop=True)
     split = int(len(df) * 0.8)
 
