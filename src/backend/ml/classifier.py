@@ -82,9 +82,6 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     train_taxi_median = float(df["taxi_trips"].iloc[:split].median())
     df["taxi_trips_filled"] = df["taxi_trips"].fillna(train_taxi_median)
 
-    # Binary target computed from training-set median only
-    y = _make_target(df["noise_complaints"].iloc[:split], df["noise_complaints"])
-
     # Derived features: log1p compresses permit-slot count variance; lag captures next-day spillover
     df["events_count_log1p"] = np.log1p(df["events_count"])
     df["events_count_lag1"] = df["events_count"].shift(1).fillna(0).astype(int)
@@ -92,11 +89,11 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     # Drop rows where noise_7d_avg is NaN (first few rows lack rolling history)
     valid = df["noise_7d_avg"].notna()
     df = df[valid].reset_index(drop=True)
-    y = y[valid].reset_index(drop=True)
     split = int(len(df) * 0.8)
 
-    # Threshold reflects the post-NaN-drop training set (matches what the model trains on)
+    # Binary target and threshold computed from the same post-NaN-drop training split
     threshold = float(df["noise_complaints"].iloc[:split].median())
+    y = _make_target(df["noise_complaints"].iloc[:split], df["noise_complaints"])
 
     features = df[FEATURE_COLS].copy()
     x_train, x_test = features.iloc[:split], features.iloc[split:]
@@ -145,8 +142,8 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     for fold, (tr_idx, val_idx) in enumerate(tscv.split(x_train)):
         xf_train, xf_val = x_train.iloc[tr_idx], x_train.iloc[val_idx]
         fold_threshold = float(noise_train_series.iloc[tr_idx].median())
-        yf = (noise_train_series >= fold_threshold).astype(int)
-        yf_train, yf_val = yf.iloc[tr_idx], yf.iloc[val_idx]
+        yf_train = (noise_train_series.iloc[tr_idx] >= fold_threshold).astype(int)
+        yf_val = (noise_train_series.iloc[val_idx] >= fold_threshold).astype(int)
 
         clf_fold = RandomForestClassifier(
             n_estimators=200,

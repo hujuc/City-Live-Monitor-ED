@@ -120,9 +120,12 @@ def build_ml_dataset(
     derived inside the trainer using the training-set median only, to avoid
     label leakage from test-period noise levels into the threshold.
 
-    Features:
-      day_of_week, month, is_summer, is_holiday_season, is_holiday,
-      events_count, noise_7d_avg, taxi_trips_filled
+    Output columns:
+      date, noise_complaints, taxi_trips, events_count,
+      day_of_week, month, is_holiday, noise_7d_avg
+
+    Also present but unused by the trainer (kept for exploratory use):
+      is_summer, is_holiday_season
 
     Raw columns kept for the trainer:
       noise_complaints  — used to compute binary target on train set

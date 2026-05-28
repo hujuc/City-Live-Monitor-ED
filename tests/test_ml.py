@@ -156,6 +156,8 @@ def test_train_classifier(tmp_path: Path):
     assert "most_frequent" in results["baselines"]
     assert "cv_mean" in results
     assert "threshold" in results
+    assert len(results["cv_scores"]) == 5
+    assert all(0.0 <= s <= 1.0 for s in results["cv_scores"])
 
 
 def test_train_classifier_target_not_from_test(tmp_path: Path):
