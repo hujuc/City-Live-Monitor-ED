@@ -1,4 +1,4 @@
-"""Train and evaluate a Random Forest classifier for NYC nightlife activity."""
+"""Train and evaluate an activity classifier for NYC nightlife."""
 
 from pathlib import Path
 
@@ -19,30 +19,16 @@ from sklearn.preprocessing import StandardScaler
 FEATURE_COLS = [
     "dow_sin",
     "dow_cos",
-    "is_weekend",
-    "sin_doy",
-    "cos_doy",
     "sin_doy_2",
-    "cos_doy_2",
-    "is_outdoor_holiday",
-    "is_quiet_holiday",
+    "cos_doy",
     "days_until_next_holiday",
-    "days_since_last_holiday",
-    "is_payday_week",
     "noise_7d_avg",
     "noise_30d_avg",
     "noise_percentile_rank_30d",
     "noise_dow_avg",
-    "noise_residual_vs_dow",
-    "events_count_log1p",
-    "events_count_lag1",
     "events_dow_avg",
     "weekend_events",
     "friday_events",
-    "taxi_trips_filled",
-    "taxi_trips_lag1",
-    "taxi_trips_7d_avg",
-    "taxi_trips_dow_avg",
 ]
 TARGET_COL = "is_high_activity"
 
@@ -83,42 +69,26 @@ def _eval_baseline(
 
 
 def train_classifier(dataset_path: Path, model_output: Path) -> dict:
-    """Train a Random Forest on the ML dataset and save the model."""
+    """Train a HistGradientBoosting classifier on the ML dataset and save the model."""
     df = pd.read_parquet(dataset_path)
 
-    derived = {
-        "taxi_trips_filled",
-        "events_count_log1p",
-        "events_count_lag1",
-        "events_dow_avg",
-        "dow_sin",
-        "dow_cos",
-        "is_weekend",
-        "taxi_trips_lag1",
-        "taxi_trips_7d_avg",
-        "taxi_trips_dow_avg",
-        "weekend_events",
-        "friday_events",
-        "noise_residual_vs_dow",
-    }
-    required = ["noise_complaints", "taxi_trips", "events_count"] + [
-        c for c in FEATURE_COLS if c not in derived
-    ]
+    # Features computed inside the trainer (not required from the input parquet)
+    derived = {"dow_sin", "dow_cos", "events_dow_avg", "weekend_events", "friday_events"}
+    required = ["noise_complaints", "events_count"] + [c for c in FEATURE_COLS if c not in derived]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in dataset: {missing}")
 
     df = df.sort_values("date").reset_index(drop=True)
 
-    # Derived features that don't depend on taxi imputation
-    df["events_count_log1p"] = np.log1p(df["events_count"])
-    df["events_count_lag1"] = df["events_count"].shift(1).fillna(0).astype(int)
+    # Derived features (_events_log1p is an intermediate; kept as a column for groupby transform)
+    df["_events_log1p"] = np.log1p(df["events_count"])
+    _is_weekend = (df["day_of_week"] >= 5).astype(int)
     df["dow_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
     df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
-    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
-    df["weekend_events"] = df["is_weekend"] * df["events_count_log1p"]
-    df["friday_events"] = (df["day_of_week"] == 4).astype(int) * df["events_count_log1p"]
-    df["events_dow_avg"] = df.groupby("day_of_week")["events_count_log1p"].transform(
+    df["weekend_events"] = _is_weekend * df["_events_log1p"]
+    df["friday_events"] = (df["day_of_week"] == 4).astype(int) * df["_events_log1p"]
+    df["events_dow_avg"] = df.groupby("day_of_week")["_events_log1p"].transform(
         lambda s: s.shift(1).expanding(min_periods=4).mean().fillna(0.0)
     )
 
@@ -134,19 +104,6 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
 
     # Time-ordered train/test split on the post-NaN-drop frame
     split = int(len(df) * 0.8)
-
-    # Impute taxi_trips from post-drop training median so the boundary matches the model split
-    train_taxi_median = float(df["taxi_trips"].iloc[:split].median())
-    df["taxi_trips_filled"] = df["taxi_trips"].fillna(train_taxi_median)
-    # Lag features: fillna covers the first row that has no predecessor after the NaN drop
-    df["taxi_trips_lag1"] = df["taxi_trips_filled"].shift(1).fillna(train_taxi_median)
-    df["taxi_trips_7d_avg"] = (
-        df["taxi_trips_filled"].shift(1).rolling(7, min_periods=3).mean().fillna(train_taxi_median)
-    )
-    df["taxi_trips_dow_avg"] = df.groupby("day_of_week")["taxi_trips_filled"].transform(
-        lambda s: s.shift(1).expanding(min_periods=4).mean().fillna(train_taxi_median)
-    )
-    df["noise_residual_vs_dow"] = df["noise_7d_avg"] - df["noise_dow_avg"]
 
     # Binary target and threshold computed from the same post-NaN-drop training split
     threshold = float(df["noise_complaints"].iloc[:split].median())
@@ -182,7 +139,7 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
             Pipeline(
                 [
                     ("scaler", StandardScaler()),
-                    ("clf", LogisticRegression(max_iter=500, random_state=42)),
+                    ("clf", LogisticRegression(C=0.5, max_iter=1000, random_state=42)),
                 ]
             ),
             x_train,
@@ -204,9 +161,12 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
 
         clf_fold = HistGradientBoostingClassifier(
             max_iter=300,
-            max_depth=4,
+            max_depth=3,
             learning_rate=0.05,
             min_samples_leaf=20,
+            l2_regularization=1.0,
+            early_stopping=True,
+            validation_fraction=0.1,
             random_state=42,
         )
         clf_fold.fit(xf_train, yf_train)
@@ -222,9 +182,12 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     # ── Final model ───────────────────────────────────────────────────────────
     model = HistGradientBoostingClassifier(
         max_iter=300,
-        max_depth=4,
+        max_depth=3,
         learning_rate=0.05,
         min_samples_leaf=20,
+        l2_regularization=1.0,
+        early_stopping=True,
+        validation_fraction=0.1,
         random_state=42,
     )
     model.fit(x_train, y_train)
