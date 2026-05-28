@@ -12,23 +12,23 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 FEATURE_COLS = [
-    "day_of_week",
     "dow_sin",
     "dow_cos",
     "is_weekend",
-    "month",
     "sin_doy",
     "cos_doy",
     "sin_doy_2",
     "cos_doy_2",
     "is_outdoor_holiday",
     "is_quiet_holiday",
-    "days_to_holiday",
+    "days_until_next_holiday",
+    "days_since_last_holiday",
+    "is_payday_week",
     "noise_7d_avg",
-    "noise_14d_avg",
     "noise_30d_avg",
     "noise_percentile_rank_30d",
     "noise_dow_avg",
@@ -38,6 +38,7 @@ FEATURE_COLS = [
     "taxi_trips_filled",
     "taxi_trips_lag1",
     "taxi_trips_7d_avg",
+    "taxi_trips_dow_avg",
 ]
 TARGET_COL = "is_high_activity"
 
@@ -90,6 +91,7 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         "is_weekend",
         "taxi_trips_lag1",
         "taxi_trips_7d_avg",
+        "taxi_trips_dow_avg",
         "weekend_events",
     }
     required = ["noise_complaints", "taxi_trips", "events_count"] + [
@@ -112,7 +114,6 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     # Drop rows where any noise rolling feature is NaN (first ~30 rows lack rolling history)
     _rolling_cols = [
         "noise_7d_avg",
-        "noise_14d_avg",
         "noise_30d_avg",
         "noise_percentile_rank_30d",
         "noise_dow_avg",
@@ -131,6 +132,9 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     df["taxi_trips_7d_avg"] = (
         df["taxi_trips_filled"].shift(1).rolling(7, min_periods=3).mean().fillna(train_taxi_median)
     )
+    df["taxi_trips_dow_avg"] = df.groupby("day_of_week")["taxi_trips_filled"].transform(
+        lambda s: s.shift(1).expanding(min_periods=4).mean().fillna(train_taxi_median)
+    )
 
     # Binary target and threshold computed from the same post-NaN-drop training split
     threshold = float(df["noise_complaints"].iloc[:split].median())
@@ -144,11 +148,6 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     logger.info("[ml] Activity threshold (train median): {:.0f} complaints/day", threshold)
 
     # ── Baselines ──────────────────────────────────────────────────────────────
-    # Single scaler fit on train only — transform applied separately to avoid test-set leakage
-    scaler = StandardScaler()
-    x_train_scaled = scaler.fit_transform(x_train)
-    x_test_scaled = scaler.transform(x_test)
-
     baselines = {
         "most_frequent": _eval_baseline(
             "most_frequent",
@@ -168,10 +167,15 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
         ),
         "logistic_regression": _eval_baseline(
             "logistic_regression",
-            LogisticRegression(max_iter=500, random_state=42),
-            x_train_scaled,
+            Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    ("clf", LogisticRegression(max_iter=500, random_state=42)),
+                ]
+            ),
+            x_train,
             y_train,
-            x_test_scaled,
+            x_test,
             y_test,
         ),
     }
@@ -183,9 +187,7 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     global_train_threshold = float(noise_train_series.median())
     for fold, (tr_idx, val_idx) in enumerate(tscv.split(x_train)):
         xf_train, xf_val = x_train.iloc[tr_idx], x_train.iloc[val_idx]
-        fold_threshold = float(noise_train_series.iloc[tr_idx].median())
-        yf_train = (noise_train_series.iloc[tr_idx] >= fold_threshold).astype(int)
-        # Validation labels use the global train threshold so CV scores are comparable to test
+        yf_train = (noise_train_series.iloc[tr_idx] >= global_train_threshold).astype(int)
         yf_val = (noise_train_series.iloc[val_idx] >= global_train_threshold).astype(int)
 
         clf_fold = RandomForestClassifier(

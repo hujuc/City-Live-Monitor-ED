@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import holidays as hol
 import numpy as np
 import pandas as pd
 import pytest
@@ -53,7 +54,6 @@ def _make_ml_dataset(tmp_path: Path, n: int = 120) -> Path:
     noise = rng.integers(1_000, 5_000, n).astype(float)
     noise_s = pd.Series(noise)
     noise_7d = noise_s.shift(1).rolling(7, min_periods=3).mean().round(1).values
-    noise_14d = noise_s.shift(1).rolling(14, min_periods=7).mean().round(1).values
     noise_30d = noise_s.shift(1).rolling(30, min_periods=15).mean().round(1).values
     noise_rank30d = noise_s.shift(1).rolling(30, min_periods=15).rank(pct=True).round(3).values
     month_s = pd.Series(dates.month)
@@ -65,6 +65,27 @@ def _make_ml_dataset(tmp_path: Path, n: int = 120) -> Path:
         .values
     )
     doy = pd.Series(dates.dayofyear)
+
+    _hol = hol.US(years=[2023, 2024, 2025])
+    _outdoor = {"Independence Day", "Memorial Day", "Labor Day"}
+    _quiet = {"Thanksgiving", "Christmas Day"}
+    _major_arr = sorted(
+        {d for d, name in _hol.items() if name in _outdoor}
+        | {d for d, name in _hol.items() if name in _quiet}
+    )
+
+    def _days_until(d):
+        future = [h for h in _major_arr if h >= d]
+        return int(min((future[0] - d).days, 7)) if future else 7
+
+    def _days_since(d):
+        past = [h for h in _major_arr if h < d]
+        return int(min((d - past[-1]).days, 3)) if past else 3
+
+    date_series = pd.Series(dates.date)
+    days_until_vals = date_series.apply(_days_until).values
+    days_since_vals = date_series.apply(_days_since).values
+
     df = pd.DataFrame(
         {
             "date": dates,
@@ -76,16 +97,19 @@ def _make_ml_dataset(tmp_path: Path, n: int = 120) -> Path:
             "is_summer": month_s.isin([6, 7, 8]).astype(int).values,
             "is_holiday_season": month_s.isin([11, 12, 1]).astype(int).values,
             "is_holiday": rng.integers(0, 2, n),
-            # Jan–Apr 2024: no outdoor/quiet holidays; Memorial Day is 28+ days out → cap=7
-            "is_outdoor_holiday": np.zeros(n, dtype=int),
+            "is_outdoor_holiday": dates.date == pd.to_datetime("2024-07-04").date(),
             "is_quiet_holiday": np.zeros(n, dtype=int),
-            "days_to_holiday": np.full(n, 7, dtype=int),
+            "days_until_next_holiday": days_until_vals,
+            "days_since_last_holiday": days_since_vals,
+            "is_payday_week": pd.Series(dates.day)
+            .isin([1, 2, 3, 14, 15, 16, 17])
+            .astype(int)
+            .values,
             "sin_doy": np.sin(2 * np.pi * doy / 365.25).round(4).values,
             "cos_doy": np.cos(2 * np.pi * doy / 365.25).round(4).values,
             "sin_doy_2": np.sin(4 * np.pi * doy / 365.25).round(4).values,
             "cos_doy_2": np.cos(4 * np.pi * doy / 365.25).round(4).values,
             "noise_7d_avg": noise_7d,
-            "noise_14d_avg": noise_14d,
             "noise_30d_avg": noise_30d,
             "noise_percentile_rank_30d": noise_rank30d,
             "noise_dow_avg": noise_dow,
@@ -156,7 +180,9 @@ def test_build_ml_dataset(tmp_path: Path):
     assert "noise_dow_avg" in df.columns
     assert "is_outdoor_holiday" in df.columns
     assert "is_quiet_holiday" in df.columns
-    assert "days_to_holiday" in df.columns
+    assert "days_until_next_holiday" in df.columns
+    assert "days_since_last_holiday" in df.columns
+    assert "is_payday_week" in df.columns
     assert "sin_doy" in df.columns
     assert "cos_doy" in df.columns
     assert "taxi_trips" in df.columns
@@ -230,7 +256,6 @@ def test_train_classifier_target_not_from_test(tmp_path: Path):
     df = df.sort_values("date").reset_index(drop=True)
     _rolling = [
         "noise_7d_avg",
-        "noise_14d_avg",
         "noise_30d_avg",
         "noise_percentile_rank_30d",
         "noise_dow_avg",

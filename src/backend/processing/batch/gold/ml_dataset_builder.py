@@ -90,13 +90,12 @@ def _load_events_silver(events_root: Path, start: pd.Timestamp, end: pd.Timestam
         if year is None or not _in_date_range(year, month, start, end):
             continue
         df = pd.read_parquet(f, columns=["start_date_time"])
-        dates = pd.to_datetime(df["start_date_time"], errors="coerce").dt.normalize()
+        dates = pd.to_datetime(df["start_date_time"], errors="coerce", utc=True).dt.normalize()
         dates = dates.dropna()
-        dates_utc = dates.dt.tz_localize("UTC", ambiguous="NaT", nonexistent="NaT")
-        dates_utc = dates_utc[(dates_utc >= start) & (dates_utc <= end)]
-        if dates_utc.empty:
+        dates = dates[(dates >= start) & (dates <= end)]
+        if dates.empty:
             continue
-        agg = dates_utc.value_counts().rename("events_count").reset_index()
+        agg = dates.value_counts().rename("events_count").reset_index()
         agg.columns = ["date", "events_count"]
         parts.append(agg)
 
@@ -125,7 +124,8 @@ def build_ml_dataset(
     Output columns:
       date, noise_complaints, taxi_trips, events_count,
       day_of_week, month, is_summer, is_holiday_season, is_holiday,
-      is_outdoor_holiday, is_quiet_holiday, days_to_holiday,
+      is_outdoor_holiday, is_quiet_holiday,
+      days_until_next_holiday, days_since_last_holiday, is_payday_week,
       sin_doy, cos_doy, sin_doy_2, cos_doy_2,
       noise_7d_avg, noise_14d_avg, noise_30d_avg, noise_percentile_rank_30d, noise_dow_avg
 
@@ -147,6 +147,8 @@ def build_ml_dataset(
         hist = pd.read_parquet(noise_counts_path)
         hist["date"] = pd.to_datetime(hist["date"], utc=True)
         hist = hist[(hist["date"] >= start) & (hist["date"] <= end)]
+        if not hist.empty and not noise_df.empty:
+            hist = hist[hist["date"] < noise_df["date"].min()]
         if not hist.empty:
             noise_df = (
                 pd.concat([noise_df, hist[["date", "noise_complaints"]]], ignore_index=True)
@@ -162,14 +164,15 @@ def build_ml_dataset(
         hist = pd.read_parquet(events_counts_path)
         hist["date"] = pd.to_datetime(hist["date"], utc=True)
         hist = hist[(hist["date"] >= start) & (hist["date"] <= end)]
+        if not hist.empty and not events_df.empty:
+            hist = hist[hist["date"] < events_df["date"].min()]
         if not hist.empty:
-            combined = (
+            events_df = (
                 pd.concat([events_df, hist[["date", "events_count"]]], ignore_index=True)
                 .groupby("date")["events_count"]
                 .sum()
                 .reset_index()
             )
-            events_df = combined
             logger.info("[ml_dataset] Merged historical events counts: {} daily records", len(hist))
 
     taxi_df = _load_tlc_silver(silver_root / "tlc/yellow", start, end)
@@ -195,12 +198,21 @@ def build_ml_dataset(
     _quiet = {"Thanksgiving", "Christmas Day"}
     _outdoor_dates = {d for d, name in us_holidays.items() if name in _outdoor}
     _quiet_dates = {d for d, name in us_holidays.items() if name in _quiet}
-    _major_sorted = sorted(_outdoor_dates | _quiet_dates)
+    _major_arr = sorted(_outdoor_dates | _quiet_dates)
     df["is_outdoor_holiday"] = df["date"].dt.date.isin(_outdoor_dates).astype(int)
     df["is_quiet_holiday"] = df["date"].dt.date.isin(_quiet_dates).astype(int)
-    df["days_to_holiday"] = df["date"].dt.date.apply(
-        lambda d: next((min((h - d).days, 7) for h in _major_sorted if h >= d), 7)
-    )
+
+    def _days_until(d):
+        future = [h for h in _major_arr if h >= d]
+        return int(min((future[0] - d).days, 7)) if future else 7
+
+    def _days_since(d):
+        past = [h for h in _major_arr if h < d]
+        return int(min((d - past[-1]).days, 3)) if past else 3
+
+    df["days_until_next_holiday"] = df["date"].dt.date.apply(_days_until)
+    df["days_since_last_holiday"] = df["date"].dt.date.apply(_days_since)
+    df["is_payday_week"] = df["date"].dt.day.isin([1, 2, 3, 14, 15, 16, 17]).astype(int)
 
     doy = df["date"].dt.dayofyear
     df["sin_doy"] = np.sin(2 * np.pi * doy / 365.25).round(4)
