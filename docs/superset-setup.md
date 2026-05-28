@@ -138,12 +138,16 @@ ORDER BY total DESC;
 Run the classifier and generate predictions before opening Superset:
 
 ```bash
-uv run clm predict-activity
+uv run clm predict-activity          # today + 7-day forecast (default)
+uv run clm predict-activity --horizon 0   # today only, no forecast
 ```
 
-This writes `data/gold/ml_prediction/daily_prediction.parquet` and prints today's prediction to the terminal. Re-run whenever you want a fresh prediction (e.g., after retraining the model or ingesting new data).
+This writes `data/gold/ml_prediction/daily_prediction.parquet` and prints today's prediction plus the 7-day forecast table to the terminal. Re-run whenever you want fresh predictions (e.g., after retraining the model or ingesting new data).
 
-Register the dataset in Superset: **Data → Datasets → + Dataset**, Database: `gold_duckdb`, Table: `activity_prediction`.
+Register two datasets in Superset:
+
+- **Data → Datasets → + Dataset**, Database: `gold_duckdb`, Table: `activity_prediction` (historical + forecast, `is_forecast` column distinguishes them)
+- Same flow, Table: `activity_forecast` (forecast rows only — next 7 days)
 
 ### Chart 4.1: Today's prediction (Big Number)
 
@@ -177,9 +181,10 @@ WHERE date = (SELECT MAX(date) FROM activity_prediction)
 
 Visualization: **Line chart**
 
+- Dataset: `activity_prediction`, filter `is_forecast = false`
 - X: `date`, Y: `MAX(probability)`
 - Time grain: Day
-- Shows the model's confidence over time — useful for spotting seasonal patterns.
+- Shows the model's confidence over historical dates — useful for spotting seasonal patterns.
 
 ### Chart 4.4: High-activity days calendar
 
@@ -188,11 +193,29 @@ Visualization: **Calendar Heatmap**, virtual dataset SQL:
 ```sql
 SELECT date, probability
 FROM activity_prediction
+WHERE is_forecast = false
 ORDER BY date
 ```
 
 - Date column: `date`
 - Metric: `MAX(probability)`
+
+### Chart 4.5: 7-Day forecast (Table)
+
+Visualization: **Table**
+
+- Dataset: `activity_forecast`
+- Columns: `date`, `activity_label`, `probability`
+- Sort by `date` ascending
+- Shows the model's next-7-day outlook based on calendar features and recent noise trends.
+
+### Chart 4.6: 7-Day forecast (Bar chart)
+
+Visualization: **Bar chart**
+
+- Dataset: `activity_forecast`
+- X: `date`, Y: `MAX(probability)`
+- Color by `activity_label` (High Activity / Low Activity)
 
 ---
 

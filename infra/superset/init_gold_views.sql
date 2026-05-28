@@ -46,12 +46,24 @@ SELECT * FROM read_parquet('/app/gold_data/gold/stream_metrics_5m/stream_metrics
 
 CREATE OR REPLACE VIEW activity_prediction AS
 SELECT
-	CAST(date AS DATE)          AS date,
+	CAST(date AS DATE)                    AS date,
 	predicted_label,
 	activity_label,
 	ROUND(CAST(probability AS DOUBLE), 4) AS probability,
-	CAST(run_at AS TIMESTAMP)   AS run_at
+	CAST(is_forecast AS BOOLEAN)          AS is_forecast,
+	CAST(run_at AS TIMESTAMP)             AS run_at
 FROM read_parquet('/app/gold_data/gold/ml_prediction/daily_prediction.parquet');
+
+-- Forecast-only view: next 7 days predicted by the model
+CREATE OR REPLACE VIEW activity_forecast AS
+SELECT
+	CAST(date AS DATE)                    AS date,
+	activity_label,
+	ROUND(CAST(probability AS DOUBLE), 4) AS probability,
+	CAST(run_at AS TIMESTAMP)             AS run_at
+FROM read_parquet('/app/gold_data/gold/ml_prediction/daily_prediction.parquet')
+WHERE CAST(is_forecast AS BOOLEAN) = true
+ORDER BY date;
 
 -- ── Combined batch + streaming view ─────────────────────────────────────────
 -- Joins hourly taxi demand with streaming 5-minute event/noise metrics.

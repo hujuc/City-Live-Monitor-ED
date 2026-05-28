@@ -835,7 +835,8 @@ def train_model(start_date: str, end_date: str) -> None:
 
 
 @cli.command("predict-activity")
-def predict_activity() -> None:
+@click.option("--horizon", default=7, show_default=True, help="Number of future days to forecast.")
+def predict_activity(horizon: int) -> None:
     """Run the trained classifier on the ML dataset and write daily predictions to Gold."""
     from backend.ml.predict import generate_predictions
 
@@ -843,11 +844,12 @@ def predict_activity() -> None:
     model_path = Config.GOLD_DIR / "ml_training" / "activity_classifier.pkl"
     output_path = Config.GOLD_DIR / "ml_prediction" / "daily_prediction.parquet"
 
-    result = generate_predictions(dataset_path, model_path, output_path)
+    result = generate_predictions(dataset_path, model_path, output_path, horizon=horizon)
 
-    label = result["activity_label"]
-    prob = result["probability"]
-    target_date = result["date"]
+    today_pred = result["today"]
+    label = today_pred["activity_label"]
+    prob = today_pred["probability"]
+    target_date = today_pred["date"]
     if hasattr(target_date, "date"):
         target_date = target_date.date()
 
@@ -856,6 +858,18 @@ def predict_activity() -> None:
     click.echo(f"  Prediction  : {label}")
     click.echo(f"  Probability : {prob:.1%}")
     click.echo(f"{'━' * 42}")
+
+    forecast = result.get("forecast", [])
+    if forecast:
+        click.echo("\n  7-Day Forecast")
+        click.echo(f"  {'Date':<12} {'Prediction':<18} {'Prob':>6}")
+        click.echo(f"  {'─' * 12} {'─' * 18} {'─' * 6}")
+        for row in forecast:
+            d = row["date"]
+            if hasattr(d, "date"):
+                d = d.date()
+            click.echo(f"  {str(d):<12} {row['activity_label']:<18} {row['probability']:>6.1%}")
+        click.echo()
 
 
 if __name__ == "__main__":
