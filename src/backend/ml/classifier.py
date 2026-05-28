@@ -101,21 +101,12 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
 
     df = df.sort_values("date").reset_index(drop=True)
 
-    # Time-ordered train/test split — preserves temporal structure, no data leakage
-    split = int(len(df) * 0.8)
-
-    # Impute taxi_trips from training-set median (avoids 2026 NaN leakage)
-    train_taxi_median = float(df["taxi_trips"].iloc[:split].median())
-    df["taxi_trips_filled"] = df["taxi_trips"].fillna(train_taxi_median)
-
-    # Derived features
+    # Derived features that don't depend on taxi imputation
     df["events_count_log1p"] = np.log1p(df["events_count"])
     df["events_count_lag1"] = df["events_count"].shift(1).fillna(0).astype(int)
     df["dow_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
     df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
     df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
-    df["taxi_trips_lag1"] = df["taxi_trips_filled"].shift(1)
-    df["taxi_trips_7d_avg"] = df["taxi_trips_filled"].shift(1).rolling(7, min_periods=3).mean()
     df["weekend_events"] = df["is_weekend"] * df["events_count_log1p"]
 
     # Drop rows where any noise rolling feature is NaN (first ~30 rows lack rolling history)
@@ -128,7 +119,18 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     ]
     valid = df[_rolling_cols].notna().all(axis=1)
     df = df[valid].reset_index(drop=True)
+
+    # Time-ordered train/test split on the post-NaN-drop frame
     split = int(len(df) * 0.8)
+
+    # Impute taxi_trips from post-drop training median so the boundary matches the model split
+    train_taxi_median = float(df["taxi_trips"].iloc[:split].median())
+    df["taxi_trips_filled"] = df["taxi_trips"].fillna(train_taxi_median)
+    # Lag features: fillna covers the first row that has no predecessor after the NaN drop
+    df["taxi_trips_lag1"] = df["taxi_trips_filled"].shift(1).fillna(train_taxi_median)
+    df["taxi_trips_7d_avg"] = (
+        df["taxi_trips_filled"].shift(1).rolling(7, min_periods=3).mean().fillna(train_taxi_median)
+    )
 
     # Binary target and threshold computed from the same post-NaN-drop training split
     threshold = float(df["noise_complaints"].iloc[:split].median())
@@ -178,11 +180,13 @@ def train_classifier(dataset_path: Path, model_output: Path) -> dict:
     tscv = TimeSeriesSplit(n_splits=5)
     cv_scores = []
     noise_train_series = df["noise_complaints"].iloc[:split].reset_index(drop=True)
+    global_train_threshold = float(noise_train_series.median())
     for fold, (tr_idx, val_idx) in enumerate(tscv.split(x_train)):
         xf_train, xf_val = x_train.iloc[tr_idx], x_train.iloc[val_idx]
         fold_threshold = float(noise_train_series.iloc[tr_idx].median())
         yf_train = (noise_train_series.iloc[tr_idx] >= fold_threshold).astype(int)
-        yf_val = (noise_train_series.iloc[val_idx] >= fold_threshold).astype(int)
+        # Validation labels use the global train threshold so CV scores are comparable to test
+        yf_val = (noise_train_series.iloc[val_idx] >= global_train_threshold).astype(int)
 
         clf_fold = RandomForestClassifier(
             n_estimators=200,

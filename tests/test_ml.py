@@ -207,7 +207,7 @@ def test_build_ml_dataset_events_zero_when_missing(tmp_path: Path):
 
 
 def test_train_classifier(tmp_path: Path):
-    dataset_path = _make_ml_dataset(tmp_path, n=120)
+    dataset_path = _make_ml_dataset(tmp_path, n=300)
     model_path = tmp_path / "model.pkl"
     results = train_classifier(dataset_path, model_path)
 
@@ -225,7 +225,7 @@ def test_train_classifier(tmp_path: Path):
 
 def test_train_classifier_target_not_from_test(tmp_path: Path):
     """Verify binary target threshold is computed from post-NaN-drop training rows only."""
-    dataset_path = _make_ml_dataset(tmp_path, n=120)
+    dataset_path = _make_ml_dataset(tmp_path, n=300)
     df = pd.read_parquet(dataset_path)
     df = df.sort_values("date").reset_index(drop=True)
     _rolling = [
