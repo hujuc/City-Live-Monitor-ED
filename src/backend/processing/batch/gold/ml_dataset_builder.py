@@ -148,7 +148,8 @@ def build_ml_dataset(
         hist["date"] = pd.to_datetime(hist["date"], utc=True)
         hist = hist[(hist["date"] >= start) & (hist["date"] <= end)]
         if not hist.empty and not noise_df.empty:
-            hist = hist[hist["date"] < noise_df["date"].min()]
+            silver_dates = set(noise_df["date"].dt.normalize())
+            hist = hist[~hist["date"].dt.normalize().isin(silver_dates)]
         if not hist.empty:
             noise_df = (
                 pd.concat([noise_df, hist[["date", "noise_complaints"]]], ignore_index=True)
