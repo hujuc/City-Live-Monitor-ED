@@ -215,23 +215,62 @@ class TLCBatchProcessor(BaseProcessor):
                 if current.empty:
                     return current, breakdown
 
-        duration_minutes = (
+        # ── Upper-bound single-column filters ─────────────────────────────────
+        for col, upper, label in [
+            ("trip_distance", 100.0, "distance_over_100_miles"),
+            ("fare_amount", 500.0, "fare_over_500"),
+            ("passenger_count", 6, "passenger_count_over_6"),
+        ]:
+            if col in current.columns:
+                current = _apply(label, current[col] <= upper)
+                if current.empty:
+                    return current, breakdown
+
+        # ── Cross-column monetary consistency ──────────────────────────────────
+        if {"tip_amount", "fare_amount"}.issubset(current.columns):
+            current = _apply(
+                "tip_exceeds_fare",
+                ~(current["tip_amount"] > current["fare_amount"]),
+            )
+            if current.empty:
+                return current, breakdown
+
+        if {"total_amount", "fare_amount"}.issubset(current.columns):
+            current = _apply(
+                "total_below_fare",
+                ~(current["total_amount"] < current["fare_amount"]),
+            )
+            if current.empty:
+                return current, breakdown
+
+        # ── Duration bounds ────────────────────────────────────────────────────
+        current["_dur_min"] = (
             current["dropoff_datetime_utc"] - current["pickup_datetime_utc"]
         ).dt.total_seconds() / 60.0
-        current = _apply("non_positive_duration", duration_minutes > 0)
+        current = _apply("non_positive_duration", current["_dur_min"] > 0)
+        if current.empty:
+            return current.drop(columns=["_dur_min"]), breakdown
+        current = _apply("duration_under_1_minute", current["_dur_min"] >= 1.0)
+        if current.empty:
+            return current.drop(columns=["_dur_min"]), breakdown
+        current = _apply("duration_over_24_hours", current["_dur_min"] <= 1440.0)
+        current = current.drop(columns=["_dur_min"])
         if current.empty:
             return current, breakdown
 
+        # ── Coordinate bounds (NYC: lat 40.5–40.9, lon -74.3 to -73.7) ────────
         if {"pickup_latitude", "pickup_longitude"}.issubset(current.columns):
-            mask = current["pickup_latitude"].between(-90, 90) & current[
-                "pickup_longitude"
-            ].between(-180, 180)
-            current = _apply("invalid_pickup_coords", mask)
+            current = _apply(
+                "pickup_outside_nyc",
+                current["pickup_latitude"].between(40.5, 40.9)
+                & current["pickup_longitude"].between(-74.3, -73.7),
+            )
         if {"dropoff_latitude", "dropoff_longitude"}.issubset(current.columns):
-            mask = current["dropoff_latitude"].between(-90, 90) & current[
-                "dropoff_longitude"
-            ].between(-180, 180)
-            current = _apply("invalid_dropoff_coords", mask)
+            current = _apply(
+                "dropoff_outside_nyc",
+                current["dropoff_latitude"].between(40.5, 40.9)
+                & current["dropoff_longitude"].between(-74.3, -73.7),
+            )
 
         return current, breakdown
 
@@ -267,6 +306,18 @@ class TLCBatchProcessor(BaseProcessor):
         data["is_unusual_midnight_trip"] = data["hour_of_day"].between(0, 4)
         data["is_tip_outlier"] = data["tip_percentage"] > 50
         data["is_speed_outlier"] = data["trip_speed_mph"] > 80
+
+        if "trip_distance" in data.columns:
+            p99_distance = data["trip_distance"].quantile(0.99)
+            data["is_trip_distance_outlier"] = data["trip_distance"] > p99_distance
+        else:
+            data["is_trip_distance_outlier"] = False
+
+        if "fare_amount" in data.columns:
+            p99_fare = data["fare_amount"].quantile(0.99)
+            data["is_fare_outlier"] = data["fare_amount"] > p99_fare
+        else:
+            data["is_fare_outlier"] = False
 
         q1 = data["trip_duration_minutes"].quantile(0.25)
         q3 = data["trip_duration_minutes"].quantile(0.75)

@@ -59,18 +59,16 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
   - [x] negative fare, tip, total
   - [x] zero/missing passenger_count
   - [x] non-positive duration
-  - [x] coordinates outside **global** bounds (not NYC-specific — see Known Deviations)
-  - [ ] **MISSING**: upper bound `trip_distance > 100 miles`
-  - [ ] **MISSING**: upper bound `fare_amount > 500`
-  - [ ] **MISSING**: upper bound `passenger_count > 6`
-  - [ ] **MISSING**: `tip_amount > fare_amount` filter
-  - [ ] **MISSING**: `total_amount < fare_amount` filter
-  - [ ] **MISSING**: `trip_duration < 60 seconds` floor
-  - [ ] **MISSING**: `trip_duration > 24 hours` ceiling
+  - [x] `trip_distance > 100 miles`
+  - [x] `fare_amount > 500`
+  - [x] `passenger_count > 6`
+  - [x] `tip_amount > fare_amount`
+  - [x] `total_amount < fare_amount`
+  - [x] `trip_duration < 60 seconds` floor
+  - [x] `trip_duration > 24 hours` ceiling
+  - [x] coordinates outside NYC bounds (lat 40.5–40.9, lon -74.3 to -73.7)
 - [x] Per-rule filter stats tracked and logged (`FilterRuleStat`)
-- [x] Flag outliers: `is_tip_outlier` (tip >50%), `is_speed_outlier` (>80 mph), `is_unusual_midnight_trip` (hour 0-4)
-  - [ ] **MISSING**: flag `trip_distance > 99th percentile` (`is_trip_distance_outlier`)
-  - [ ] **MISSING**: flag `fare > 99th percentile` (`is_fare_outlier`)
+- [x] Flag outliers: `is_tip_outlier` (tip >50%), `is_speed_outlier` (>80 mph), `is_unusual_midnight_trip` (hour 0-4), `is_trip_distance_outlier` (>99th pct), `is_fare_outlier` (>99th pct)
   - Note: spec says `is_rush_hour` and `is_unusual_midnight_trip` apply "on weekdays" — code has no weekday exclusion; document deviation in report
 - [x] Feature engineering (trip_duration_minutes, trip_speed_mph, hour_of_day, day_of_week, is_weekend, is_rush_hour, tip_percentage, cost_per_mile)
 - [x] IQR outlier detection + cap trip_duration at 95th percentile
@@ -162,7 +160,6 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ## Known Deviations from Spec (document in report)
 
-- **Coordinate filter uses global bounds**: spec says NYC bounds (lat 40.5–40.9, lon -74.3 to -73.7); code uses global bounds (-90/90, -180/180). NYC-specific filter is not implemented — effectively a missing quality rule.
 - **is_rush_hour**: spec says "7-9am, 5-7pm on weekdays" — code uses `isin([7,8,9,16,17,18,19])` with no weekday exclusion. Documented in project report.
 - **is_unusual_midnight_trip**: spec implies "weekdays" — code uses `hour_of_day.between(0, 4)` with no day filter.
 - **Exactly-once semantics**: spec says "implement where possible" — implemented as at-least-once + idempotent Silver dedup. Documented in project report.
