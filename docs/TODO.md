@@ -23,27 +23,25 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Circuit breaker for API failures
 - [x] Pagination for large backfills (>2000 rows per poll)
 - [x] Inject `_ingestion_timestamp` into every NDJSON row on write
+- [x] Dead Letter Queue (DLQ) topics for malformed events (`events.dlq`, `noise311.dlq`)
 
 ### 3.3 Data Profiling
 
-- [-] Profile ALL ingested data sources (batch + streaming samples)
-  - **BUG**: profiling report (`docs/data-profiling-report.md`) was generated against Green Taxi data (`lpep_*` columns) — project uses Yellow Taxi (`tpep_*`). Must be regenerated.
-  - Missing: statistical profiles (mean, std, min, max, percentiles) for numeric columns
-  - Missing: severity ratings per data quality issue
-  - Missing: visualizations / charts
-  - Numbers are stale (report says 41 TLC files; actual is 35)
-- [ ] Regenerate data-profiling-report.md against Yellow Taxi Bronze data with full stats
+- [x] Profile ALL ingested data sources (batch + streaming samples)
+  - Report correctly uses Yellow Taxi (`tpep_*` columns), 35 files, statistical profiles with severity ratings
+- [x] Data Profiling Report (`docs/data-profiling-report.md`) — generated from Yellow Taxi Bronze; schema, stats, severity ratings, cleaning recommendations for all 3 sources
 
 ### 3.4 Infrastructure Setup
 
 - [x] Docker Compose with all services (Kafka, MinIO, Airflow, Superset, Backend)
+- [x] Monitoring: Kafka Exporter + Prometheus (port 9090) + Grafana (port 3000) — `infra/prometheus/`, `infra/grafana/`
 - [x] Version control with Git (master + dev + feature branches)
 - [x] Environment-based configuration (.env)
 - [x] Pre-commit hooks (ruff, formatting, whitespace)
 
 ### 3.5 Deliverables
 
-- [x] Data Profiling Report (`docs/data-profiling-report.md`) — regenerated from Yellow Taxi Bronze; schema, stats, severity ratings, cleaning recommendations for all 3 sources
+- [x] Data Profiling Report (`docs/data-profiling-report.md`) — Yellow Taxi Bronze; schema, stats, severity ratings, cleaning recommendations for all 3 sources
 - [x] README.md (Architecture, Prerequisites, Quick Start, Services, CLI Reference, Data Sources, Storage Layout, Dashboards, Development)
 - [x] Code repository (.gitignore, meaningful commits, feature branching strategy)
 
@@ -61,7 +59,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
   - [x] negative fare, tip, total
   - [x] zero/missing passenger_count
   - [x] non-positive duration
-  - [x] coordinates outside global bounds
+  - [x] coordinates outside **global** bounds (not NYC-specific — see Known Deviations)
   - [ ] **MISSING**: upper bound `trip_distance > 100 miles`
   - [ ] **MISSING**: upper bound `fare_amount > 500`
   - [ ] **MISSING**: upper bound `passenger_count > 6`
@@ -71,8 +69,8 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
   - [ ] **MISSING**: `trip_duration > 24 hours` ceiling
 - [x] Per-rule filter stats tracked and logged (`FilterRuleStat`)
 - [x] Flag outliers: `is_tip_outlier` (tip >50%), `is_speed_outlier` (>80 mph), `is_unusual_midnight_trip` (hour 0-4)
-  - [ ] **MISSING**: flag `trip_distance > 99th percentile`
-  - [ ] **MISSING**: flag `fare > 99th percentile`
+  - [ ] **MISSING**: flag `trip_distance > 99th percentile` (`is_trip_distance_outlier`)
+  - [ ] **MISSING**: flag `fare > 99th percentile` (`is_fare_outlier`)
   - Note: spec says `is_rush_hour` and `is_unusual_midnight_trip` apply "on weekdays" — code has no weekday exclusion; document deviation in report
 - [x] Feature engineering (trip_duration_minutes, trip_speed_mph, hour_of_day, day_of_week, is_weekend, is_rush_hour, tip_percentage, cost_per_mile)
 - [x] IQR outlier detection + cap trip_duration at 95th percentile
@@ -89,7 +87,8 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 4.3 Processing Orchestration
 
-- [x] Airflow DAG for batch processing pipeline (5 tasks, daily schedule)
+- [x] Airflow DAG for batch processing pipeline (`batch_pipeline`, 5 tasks, daily schedule)
+- [x] Airflow DAG for daily ML prediction refresh (`daily_prediction`, 3 tasks, 06:00 UTC)
 - [x] Schedule batch jobs (catchup=False, max_active_runs=1)
 - [x] on_failure_callback on all DAG tasks
 
@@ -121,10 +120,11 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 - [x] `taxi_demand_by_zone` (39,198 rows: 265 zones x 168 hour/day combos)
 - [x] `event_schedule` (35,209 unique events)
-- [x] `noise_by_borough_hour` (8,074 cells: borough x type x descriptor x hour x day)
+- [x] `noise_by_borough_hour` (11,570 rows: borough x type x descriptor x hour x day)
 - [x] `stream_metrics_5m` (256 rows from one Kafka run)
 - [x] Star schema: `dim_zone` (265), `dim_time` (168), `fact_taxi_demand` (39,198)
 - [x] Gold tables mirrored to MinIO (`MINIO_ENABLED=true`)
+- [-] ML Gold tables (`ml_training/ml_dataset.parquet`, `activity_prediction.parquet`) — code is ready (`clm build-ml-dataset`, `clm train-model`, `clm predict-activity`) but files are not committed; generated at runtime
 
 ### 5.4 Deliverables
 
@@ -134,40 +134,36 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ## 6. Serving & Visualization
 
-- [x] Dashboard 1: Late-Night Taxi (4 charts: zone heatmap, top-10 zones, trips by hour weekday/weekend, avg fare by borough)
-- [x] Dashboard 2: Tonight's Events (4 charts: events by borough, events by type, events per day, upcoming nightlife table)
-- [x] Dashboard 3: Live Noise Complaints (4 charts: borough x hour heatmap, hour weekday/weekend, descriptor by borough, top complaint types)
-- [x] Dashboard 4: Batch + Streaming Combined (trips + events + noise by hour, streaming volume by source, quality table with late/duplicate ratios)
+- [x] Dashboard 1: Late-Night Taxi (4 charts: Late-Night Taxi Heatmap, Top 10 Late-Night Zones, Trips by Hour Weekend vs Weekday, Avg Fare by Borough x Hour)
+- [x] Dashboard 2: Events (4 charts: Events by Borough, Events by Type, Events per Day, Upcoming Nightlife Events)
+- [x] Dashboard 3: Noise (4 charts: Noise by Borough x Hour, Noise by Hour Weekend vs Weekday, Noise Descriptor by Borough, Top Noise Complaint Types)
+- [x] Dashboard 4: Batch + Streaming Combined (3 charts: Trips Events & Noise by Hour, Streaming Volume by Source & Type, Streaming Quality by Source)
+- [x] Dashboard 5: Prediction (4 charts: 7-Day Activity Forecast, Forecast Detail, Activity Trend Last 14 Days + Forecast, Today's Activity Confidence)
 - [x] All dashboards query DuckDB views over Gold Parquet directly
+- [x] ML pipeline: `classifier.py` (HistGradientBoosting, 12 features, TimeSeriesSplit CV), `predict.py` (7-day forward forecast), `ml_dataset_builder.py`
 
 ### 6.3 Deliverables
 
 - [ ] Description and screenshots of each dashboard and all charts (for project report / submission)
+- [-] Verify Superset export (`make superset-export`) is current; confirm dashboards load cleanly after fresh `docker compose up`
 
 ---
 
 ## 7. Final Deliverables
 
-- [-] Code Repository: modular, runnable — README.md complete; merge pending branches before submission
+- [x] Code Repository: modular, runnable — README.md complete, all feature branches merged to master
 - [x] Architecture & Contracts: architecture diagram in project-report.md + data contracts written (`docs/data-contracts.md`) for both real-time sources
-- [x] Populated Storage: demonstrable Bronze (62 files), Silver (192 files), Gold (7 tables + star schema), MinIO mirror
-- [-] Dashboards: 4 dashboards working locally — need to verify Superset export (`make superset-export`) is current and dashboards load cleanly after fresh `docker compose up`
-- [-] Project Report (`docs/project-report.md`) — comprehensive draft on branch `feat/storage-&-project-report`; not yet merged to master
-- [ ] Final Presentation: `docs/presentation1_slides.pdf` exists — verify it covers complete orchestrated system and all challenges
-
----
-
-## Pending Branch Merges (before submission)
-
-- [ ] Merge `feat/storage-&-project-report` → master (contains project-report.md + storage-report.md fixes)
-- [ ] Merge `feat/gold-layer` → master (large uncommitted Gold layer changes)
-- [ ] Ensure all teammates have visible commits on master/dev
+- [x] Populated Storage: demonstrable Bronze (62 files), Silver (279+ files), Gold (7 tables + star schema), MinIO mirror
+- [-] Dashboards: 4 dashboards working locally — screenshots and Superset export still pending
+- [x] Project Report (`docs/project-report.md`) — merged to master; covers full orchestrated system
+- [ ] Final Presentation: `docs/presentation1_slides.pdf` exists — verify it covers ML pipeline, Prometheus/Grafana monitoring, and complete 4-dashboard system
 
 ---
 
 ## Known Deviations from Spec (document in report)
 
-- **is_rush_hour**: spec says "7-9am, 5-7pm on weekdays" — code uses `isin([7,8,9,16,17,18,19])` with no weekday exclusion. Deviation documented in project report.
+- **Coordinate filter uses global bounds**: spec says NYC bounds (lat 40.5–40.9, lon -74.3 to -73.7); code uses global bounds (-90/90, -180/180). NYC-specific filter is not implemented — effectively a missing quality rule.
+- **is_rush_hour**: spec says "7-9am, 5-7pm on weekdays" — code uses `isin([7,8,9,16,17,18,19])` with no weekday exclusion. Documented in project report.
 - **is_unusual_midnight_trip**: spec implies "weekdays" — code uses `hour_of_day.between(0, 4)` with no day filter.
 - **Exactly-once semantics**: spec says "implement where possible" — implemented as at-least-once + idempotent Silver dedup. Documented in project report.
 - **Missing upper-bound quality filters**: trip_distance >100, fare >500, passenger_count >6, tip>fare, total<fare, duration <60s or >24h — not implemented. Decide: implement or document as deliberate choice.

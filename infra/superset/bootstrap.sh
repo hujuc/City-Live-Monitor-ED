@@ -34,9 +34,19 @@ with open("/app/init_gold_views.sql") as f:
     sql = f.read()
 # duckdb.execute() handles one statement at a time; split on statement boundaries
 statements = [s.strip() for s in re.split(r";\s*\n", sql) if s.strip()]
+skipped = []
 for stmt in statements:
-    con.execute(stmt)
+    try:
+        con.execute(stmt)
+    except duckdb.IOException as e:
+        # Parquet file not yet generated (e.g. ML prediction output) — skip gracefully
+        name = re.search(r"VIEW\s+(\w+)", stmt, re.IGNORECASE)
+        label = name.group(1) if name else "unknown"
+        print(f"[bootstrap] Skipped view '{label}' (file not found): {e}")
+        skipped.append(label)
 print("Views:", [r[0] for r in con.execute("SHOW TABLES").fetchall()])
+if skipped:
+    print(f"[bootstrap] Skipped (run 'clm predict-activity' to populate): {skipped}")
 con.close()
 PY
 
