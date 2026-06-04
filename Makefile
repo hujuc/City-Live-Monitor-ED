@@ -138,7 +138,7 @@ train-model:
 predict:
 	uv run clm predict-activity
 
-# Daily refresh: pull recent noise counts → rebuild ML dataset → predict
+# Daily refresh: pull recent noise counts → rebuild ML dataset → retrain → predict
 # Use TODAY variable to override end date, e.g.: make ml-refresh TODAY=2026-05-28
 TODAY ?= $(shell date -u +%Y-%m-%d)
 ml-refresh:
@@ -150,6 +150,7 @@ from config.settings import Config; \
 build_ml_dataset(Config.SILVER_DIR, Config.GOLD_DIR/'ml_training'/'ml_dataset.parquet', \
     events_counts_path=Config.GOLD_DIR/'ml_training'/'events_historical_counts.parquet', \
     noise_counts_path=Config.GOLD_DIR/'ml_training'/'noise311_historical_counts.parquet')"
+	uv run clm train-model
 	uv run clm predict-activity
 
 # ── Docker orchestration ────────────────────────────────────────────────────

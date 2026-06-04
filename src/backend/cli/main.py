@@ -794,7 +794,12 @@ def backfill_events_daily_counts(start_date: str, end_date: str) -> None:
 
 @cli.command("train-model")
 @click.option("--start-date", default="2023-01-01", show_default=True, help="Training window start")
-@click.option("--end-date", default="2026-05-28", show_default=True, help="Training window end")
+@click.option(
+    "--end-date",
+    default=lambda: __import__("datetime").date.today().isoformat(),
+    show_default=True,
+    help="Inclusive end date (YYYY-MM-DD); defaults to today",
+)
 def train_model(start_date: str, end_date: str) -> None:
     """Build ML training dataset from Silver and train an activity classifier."""
     from backend.ml.classifier import train_classifier
