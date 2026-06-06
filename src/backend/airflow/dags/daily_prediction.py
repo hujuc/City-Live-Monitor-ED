@@ -4,8 +4,9 @@
 
 Pipeline:
 1) Fetch latest noise311 daily counts from Socrata (yesterday → today)
-2) Retrain classifier on extended dataset
-3) Write Gold prediction parquet (read by Superset activity_prediction view)
+2) Write Gold prediction parquet using the current trained model
+
+Retraining runs separately on a weekly schedule (see weekly_retrain.py).
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ DEFAULT_ARGS = {
 
 with DAG(
     dag_id="city_live_monitor_daily_prediction",
-    description="Refresh noise counts → retrain → generate activity predictions",
+    description="Refresh noise counts → generate activity predictions (no retrain)",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
     schedule="0 6 * * *",  # 06:00 UTC — Socrata 311 data typically stabilises overnight
@@ -72,9 +73,6 @@ with DAG(
     max_active_runs=1,
     tags=["city-live-monitor", "ml", "prediction"],
 ) as dag:
-    # Pull yesterday and today's complaint counts from Socrata so the ML
-    # dataset has fresh data before retraining. {{ ds }} is the DAG execution
-    # date (YYYY-MM-DD); macros.ds_add shifts by N days.
     refresh_noise = BashOperator(
         task_id="refresh_noise_counts",
         bash_command=(
@@ -83,14 +81,9 @@ with DAG(
         ),
     )
 
-    retrain = BashOperator(
-        task_id="retrain_classifier",
-        bash_command="cd /opt/airflow/src && python -m backend.cli.main train-model",
-    )
-
     predict = BashOperator(
         task_id="generate_predictions",
         bash_command="cd /opt/airflow/src && python -m backend.cli.main predict-activity",
     )
 
-    refresh_noise >> retrain >> predict
+    refresh_noise >> predict

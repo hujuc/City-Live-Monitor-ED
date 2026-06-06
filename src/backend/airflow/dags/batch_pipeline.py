@@ -13,7 +13,7 @@ Pipeline:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 _log = logging.getLogger("city-live-monitor.dag")
 
@@ -64,12 +64,15 @@ DEFAULT_ARGS = {
     "on_failure_callback": _on_failure,
 }
 
+_CURRENT_YEAR = datetime.now(tz=UTC).year
+_TLC_YEARS = " ".join(str(y) for y in range(2023, _CURRENT_YEAR + 1))
+
 with DAG(
     dag_id="city_live_monitor_batch_pipeline",
     description="Bronze -> Silver -> Gold batch pipeline",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
-    schedule="@daily",
+    schedule="@weekly",
     catchup=False,
     max_active_runs=1,
     tags=["city-live-monitor", "batch", "medallion"],
@@ -77,9 +80,9 @@ with DAG(
     ingest_tlc_bronze = BashOperator(
         task_id="ingest_tlc_to_bronze",
         bash_command=(
-            "cd /opt/airflow/src && "
-            "python -m backend.ingestion.batch.download_tlc "
-            "--taxi-types yellow --years 2023 2024 2025 --workers 4"
+            f"cd /opt/airflow/src && "
+            f"python -m backend.ingestion.batch.download_tlc "
+            f"--taxi-types yellow --years {_TLC_YEARS} --workers 4"
         ),
     )
 
