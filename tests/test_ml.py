@@ -106,10 +106,10 @@ def _make_ml_dataset(tmp_path: Path, n: int = 120) -> Path:
             .isin([1, 2, 3, 14, 15, 16, 17])
             .astype(int)
             .values,
-            "sin_doy": np.sin(2 * np.pi * doy / 365.25).round(4).values,
-            "cos_doy": np.cos(2 * np.pi * doy / 365.25).round(4).values,
-            "sin_doy_2": np.sin(4 * np.pi * doy / 365.25).round(4).values,
-            "cos_doy_2": np.cos(4 * np.pi * doy / 365.25).round(4).values,
+            "sin_doy": np.sin(2 * np.pi * doy / 365.25).round(4),
+            "cos_doy": np.cos(2 * np.pi * doy / 365.25).round(4),
+            "sin_doy_2": np.sin(4 * np.pi * doy / 365.25).round(4),
+            "cos_doy_2": np.cos(4 * np.pi * doy / 365.25).round(4),
             "noise_7d_avg": noise_7d,
             "noise_30d_avg": noise_30d,
             "noise_percentile_rank_30d": noise_rank30d,
