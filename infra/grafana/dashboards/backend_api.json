@@ -147,8 +147,8 @@
     },
     {
       "id": 9,
-      "title": "ML Model Health",
-      "description": "Model ROC-AUC and F1 from last retrain. Pushed by the weekly_retrain DAG via Pushgateway.",
+      "title": "ML Model Health (ROC-AUC)",
+      "description": "ROC-AUC from last retrain. Green ≥ 0.85, yellow ≥ 0.70, red below.",
       "type": "stat",
       "gridPos": { "x": 0, "y": 20, "w": 6, "h": 4 },
       "targets": [
@@ -157,64 +157,76 @@
           "legendFormat": "ROC-AUC"
         }
       ],
-      "options": {
-        "colorMode": "background",
-        "thresholds": {
-          "steps": [
-            { "value": 0, "color": "red" },
-            { "value": 0.7, "color": "yellow" },
-            { "value": 0.85, "color": "green" }
-          ]
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "red" },
+              { "value": 0.7, "color": "yellow" },
+              { "value": 0.85, "color": "green" }
+            ]
+          }
         }
-      }
+      },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
     },
     {
       "id": 10,
       "title": "ML Last Retrain",
-      "description": "Time since last ML model retrain. Red if > 8 days.",
+      "description": "How long ago the classifier was last retrained. Green = recent, red = stale (> 8 days).",
       "type": "stat",
       "gridPos": { "x": 6, "y": 20, "w": 6, "h": 4 },
       "targets": [
         {
           "expr": "time() - ml_last_retrain_timestamp_seconds",
-          "legendFormat": "seconds since retrain"
+          "legendFormat": "age"
         }
       ],
-      "options": {
-        "colorMode": "background",
-        "unit": "s",
-        "thresholds": {
-          "steps": [
-            { "value": 0, "color": "green" },
-            { "value": 604800, "color": "yellow" },
-            { "value": 691200, "color": "red" }
-          ]
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdhms",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 604800, "color": "yellow" },
+              { "value": 691200, "color": "red" }
+            ]
+          }
         }
-      }
+      },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
     },
     {
       "id": 11,
       "title": "ML Last Prediction",
-      "description": "Time since last prediction parquet was written. Red if > 25 hours.",
+      "description": "How long ago the prediction parquet was written. Green = recent, red = stale (> 25 h).",
       "type": "stat",
       "gridPos": { "x": 12, "y": 20, "w": 6, "h": 4 },
       "targets": [
         {
           "expr": "time() - ml_last_prediction_timestamp_seconds",
-          "legendFormat": "seconds since last prediction"
+          "legendFormat": "age"
         }
       ],
-      "options": {
-        "colorMode": "background",
-        "unit": "s",
-        "thresholds": {
-          "steps": [
-            { "value": 0, "color": "green" },
-            { "value": 82800, "color": "yellow" },
-            { "value": 90000, "color": "red" }
-          ]
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdhms",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 82800, "color": "yellow" },
+              { "value": 90000, "color": "red" }
+            ]
+          }
         }
-      }
+      },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
     }
   ]
 }
