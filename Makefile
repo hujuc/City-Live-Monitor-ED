@@ -1,4 +1,4 @@
-.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build gold-build-star-schema report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports train-model predict ml-refresh docker-up docker-down docker-ps health clean clean-silver-gold demo-summary
+.PHONY: setup test lint typecheck kafka-up kafka-wait airflow-up airflow-wait serve-api stream-events stream-noise311 stream-aggregates silver-process-tlc silver-process-events silver-process-noise311 gold-build gold-build-star-schema report-data-profiling report-processing superset-up superset-bootstrap superset-export ingest-streaming silver-all pipeline reports train-model predict ml-refresh docker-up docker-down docker-ps health clean clean-silver-gold demo-summary demo-kafka demo-ml
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -167,10 +167,49 @@ docker-ps:
 # ── Health + summary ────────────────────────────────────────────────────────
 
 health:
-	@printf "API       "; curl -sf http://localhost:8000/health  >/dev/null && echo "OK" || echo "DOWN"
-	@printf "Superset  "; curl -sf http://localhost:8088/health  >/dev/null && echo "OK" || echo "DOWN"
-	@printf "Airflow   "; curl -sf http://localhost:8080/api/v2/version >/dev/null && echo "OK" || echo "DOWN"
-	@printf "MinIO     "; curl -sf http://localhost:9000/minio/health/live >/dev/null && echo "OK" || echo "DOWN"
+	@printf "API        "; curl -sf http://localhost:8000/health  >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Superset   "; curl -sf http://localhost:8088/health  >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Airflow    "; curl -sf http://localhost:8080/api/v2/version >/dev/null && echo "OK" || echo "DOWN"
+	@printf "MinIO      "; curl -sf http://localhost:9000/minio/health/live >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Prometheus "; curl -sf http://localhost:9090/-/healthy >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Grafana    "; curl -sf http://localhost:3000/api/health >/dev/null && echo "OK" || echo "DOWN"
+	@printf "Pushgateway"; curl -sf http://localhost:9091/-/healthy >/dev/null && echo "OK" || echo "DOWN"
+
+# ── Demo targets ─────────────────────────────────────────────────────────────
+
+# Demo: produce noise311 + events → aggregate → watch Grafana kafka_pipeline dashboard
+# Open http://localhost:3000 on the Kafka Pipeline dashboard before running.
+demo-kafka: kafka-wait
+	@echo ""
+	@echo "==> Resetting noise311 checkpoint to 5 days ago (guarantees a large batch)..."
+	@echo "$$(date -u -d '5 days ago' '+%Y-%m-%dT%H:%M:%S')" > data/checkpoints/noise311_created_date.txt
+	@echo ""
+	@echo "==> [1/3] Producing noise311 events (~5 pages, ~5000 records)..."
+	@echo "    Open Grafana Kafka Pipeline dashboard now — lag will spike in ~15s"
+	uv run clm stream-noise311 --once --max-pages 5
+	@echo ""
+	@echo "==> Lag is high. Waiting 30s so Grafana captures the spike..."
+	@sleep 30
+	@echo ""
+	@echo "==> [2/3] Producing permitted events..."
+	uv run clm stream-events --once
+	@echo ""
+	@echo "==> [3/3] Consuming + aggregating (watch lag drain to 0 in Grafana)..."
+	uv run clm stream-aggregates --once --max-messages 10000
+	@echo ""
+	@echo "Done. Gold stream_metrics written. Check Grafana: http://localhost:3000"
+
+# Demo: train ML model → predict → push metrics to Pushgateway → watch backend_api dashboard
+# Open http://localhost:3000/d/nyc-backend before running.
+demo-ml:
+	@echo ""
+	@echo "==> [1/2] Training classifier (metrics pushed to Pushgateway on completion)..."
+	uv run clm train-model
+	@echo ""
+	@echo "==> [2/2] Generating predictions..."
+	uv run clm predict-activity
+	@echo ""
+	@echo "Done. Check Grafana ML panels: http://localhost:3000"
 
 summary:
 	@uv run clm summary

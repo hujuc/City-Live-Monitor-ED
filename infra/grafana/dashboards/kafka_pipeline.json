@@ -1,5 +1,5 @@
 {
-  "title": "NYC Nightlife Pulse — Pipeline Health",
+  "title": "NYC Nightlife Pulse - Pipeline Health",
   "uid": "nyc-pipeline",
   "schemaVersion": 38,
   "refresh": "10s",
@@ -7,31 +7,31 @@
   "panels": [
     {
       "id": 1,
-      "title": "Kafka Consumer Lag — noise311",
+      "title": "Kafka Consumer Lag - noise311",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
       "targets": [
         {
           "expr": "kafka_consumergroup_lag{topic=\"noise311.raw\"}",
-          "legendFormat": "{{consumergroup}} / {{partition}}"
+          "legendFormat": "{{consumergroup}} / partition {{partition}}"
         }
       ]
     },
     {
       "id": 2,
-      "title": "Kafka Consumer Lag — events",
+      "title": "Kafka Consumer Lag - events",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
       "targets": [
         {
           "expr": "kafka_consumergroup_lag{topic=\"events.raw\"}",
-          "legendFormat": "{{consumergroup}} / {{partition}}"
+          "legendFormat": "{{consumergroup}} / partition {{partition}}"
         }
       ]
     },
     {
       "id": 3,
-      "title": "Messages In — noise311.raw",
+      "title": "Messages In - noise311.raw",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
       "targets": [
@@ -43,7 +43,7 @@
     },
     {
       "id": 4,
-      "title": "Messages In — events.raw",
+      "title": "Messages In - events.raw",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
       "targets": [
@@ -55,27 +55,45 @@
     },
     {
       "id": 5,
-      "title": "DLQ Messages — noise311.dlq",
+      "title": "DLQ New Messages (10m) - noise311.dlq",
+      "description": "Rate of new dead-letter messages in the last 10 minutes. Red = DLQ is actively growing.",
       "type": "stat",
       "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "kafka_topic_partition_current_offset{topic=\"noise311.dlq\"}"
+          "expr": "increase(kafka_topic_partition_current_offset{topic=\"noise311.dlq\"}[10m])"
         }
       ],
-      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } }
+      "options": {
+        "colorMode": "background",
+        "thresholds": {
+          "steps": [
+            { "value": 0, "color": "green" },
+            { "value": 0.001, "color": "red" }
+          ]
+        }
+      }
     },
     {
       "id": 6,
-      "title": "DLQ Messages — events.dlq",
+      "title": "DLQ New Messages (10m) - events.dlq",
+      "description": "Rate of new dead-letter messages in the last 10 minutes. Red = DLQ is actively growing.",
       "type": "stat",
       "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "kafka_topic_partition_current_offset{topic=\"events.dlq\"}"
+          "expr": "increase(kafka_topic_partition_current_offset{topic=\"events.dlq\"}[10m])"
         }
       ],
-      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } }
+      "options": {
+        "colorMode": "background",
+        "thresholds": {
+          "steps": [
+            { "value": 0, "color": "green" },
+            { "value": 0.001, "color": "red" }
+          ]
+        }
+      }
     },
     {
       "id": 7,
@@ -87,7 +105,38 @@
           "expr": "kafka_brokers"
         }
       ],
-      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "red" }, { "value": 1, "color": "green" }] } }
+      "options": {
+        "colorMode": "background",
+        "thresholds": {
+          "steps": [
+            { "value": 0, "color": "red" },
+            { "value": 1, "color": "green" }
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Total Consumer Lag (all groups)",
+      "description": "Sum of consumer lag across all partitions and consumer groups. Green = consumers are keeping up.",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(kafka_consumergroup_lag)",
+          "legendFormat": "total lag"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "thresholds": {
+          "steps": [
+            { "value": 0, "color": "green" },
+            { "value": 100, "color": "yellow" },
+            { "value": 500, "color": "red" }
+          ]
+        }
+      }
     }
   ]
 }

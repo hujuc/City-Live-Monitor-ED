@@ -41,6 +41,8 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+      MINIO_PROMETHEUS_URL: http://prometheus:9090
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -86,7 +88,13 @@ services:
       _PIP_ADDITIONAL_REQUIREMENTS: >-
         loguru click rich fastapi uvicorn requests kafka-python
         pandas pyarrow python-dotenv
+        holidays scikit-learn joblib numpy prometheus-client
       PYTHONPATH: /opt/airflow/src
+      PUSHGATEWAY_URL: http://pushgateway:9091
+      AIRFLOW__METRICS__STATSD_ON: "true"
+      AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
+      AIRFLOW__METRICS__STATSD_PORT: "9125"
+      AIRFLOW__METRICS__STATSD_PREFIX: airflow
       # Airflow 3.x Simple Auth Manager config is under [core]
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_USER:-admin}:admin
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_passwords.json
@@ -151,6 +159,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ENABLED: "true"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PUSHGATEWAY_URL: http://pushgateway:9091
     env_file:
       - .env
     depends_on:
@@ -172,12 +181,25 @@ services:
     ports:
       - "9308:9308"
 
+  pushgateway:
+    image: prom/pushgateway:v1.11.0
+    ports:
+      - "9091:9091"   # Push endpoint for batch jobs (ML pipeline, Airflow tasks)
+
+  statsd-exporter:
+    image: prom/statsd-exporter:v0.28.0
+    ports:
+      - "9102:9102"   # Prometheus scrape → http://localhost:9102/metrics
+      - "9125:9125/udp"  # StatsD UDP receiver (Airflow sends here)
+    command: ["--statsd.listen-udp=:9125", "--web.listen-address=:9102"]
+
   prometheus:
     image: prom/prometheus:v3.11.3
     ports:
       - "9090:9090"   # UI → http://localhost:9090
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"

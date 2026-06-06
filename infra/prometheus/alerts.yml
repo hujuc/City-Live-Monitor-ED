@@ -1,0 +1,133 @@
+groups:
+  - name: kafka
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumergroup_lag > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer group {{ $labels.consumergroup }} is lagging on {{ $labels.topic }}"
+
+      - alert: KafkaDLQGrowing
+        expr: increase(kafka_topic_partition_current_offset{topic=~".*\\.dlq"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ topic {{ $labels.topic }} received new messages in the last 10 min"
+
+      - alert: KafkaBrokerDown
+        expr: kafka_brokers < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka broker is down — no brokers online"
+
+  - name: backend
+    rules:
+      - alert: BackendMetricsDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FastAPI backend /metrics is unreachable — scrape target is down"
+
+      - alert: BackendHighErrorRate
+        expr: >
+          rate(http_requests_total{status=~"5.."}[5m])
+          / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FastAPI error rate > 5% over the last 5 minutes"
+
+  - name: ml
+    rules:
+      - alert: MLModelStale
+        expr: time() - ml_last_retrain_timestamp_seconds > 691200
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML classifier has not been retrained in over 8 days"
+
+      - alert: MLPredictionStale
+        expr: time() - ml_last_prediction_timestamp_seconds > 90000
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML prediction parquet has not been updated in over 25 hours"
+
+  - name: minio
+    rules:
+      - alert: MinIODiskUsageHigh
+        expr: >
+          (minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes)
+          / minio_cluster_capacity_raw_total_bytes > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MinIO disk usage above 90% — Gold table writes at risk"
+
+      - alert: MinIODiskCritical
+        expr: >
+          (minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes)
+          / minio_cluster_capacity_raw_total_bytes > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO disk usage above 95% — Gold writes will fail imminently"
+
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO is unreachable — object storage offline"
+
+  - name: airflow
+    rules:
+      - alert: AirflowSchedulerDown
+        expr: increase(airflow_scheduler_heartbeat[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Airflow scheduler has not sent a heartbeat in 5 minutes — DAGs will not run"
+
+      - alert: AirflowDAGImportErrors
+        expr: airflow_dag_processing_import_errors > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} DAG file(s) have import errors — those DAGs will not be scheduled"
+
+      - alert: AirflowDAGProcessingStale
+        expr: airflow_dag_processing_total_parse_time == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Airflow DAG processor has not run in 10 minutes — scheduler may be idle"
+
+      - alert: AirflowDailyPredictionStale
+        expr: time() - airflow_dag_last_success_timestamp_seconds{dag_id="city_live_monitor_daily_prediction"} > 172800
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "daily_prediction DAG has not completed successfully in over 2 days"
+
+      - alert: AirflowExecutorNoSlots
+        expr: airflow_executor_open_slots == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "All Airflow executor slots are occupied — tasks are queuing"

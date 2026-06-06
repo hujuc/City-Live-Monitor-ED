@@ -10,6 +10,7 @@ from typing import Any, cast
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from backend.storage.gold import GoldStorage
 
@@ -18,6 +19,8 @@ app = FastAPI(
     description="NYC Nightlife Pulse — batch and streaming analytics",
     version="0.1.0",
 )
+
+Instrumentator().instrument(app).expose(app)
 
 app.add_middleware(
     CORSMiddleware,
