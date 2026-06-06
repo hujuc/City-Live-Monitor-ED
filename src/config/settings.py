@@ -15,6 +15,7 @@ class Config:
     PROJECT_ROOT = Path(__file__).parents[2]
     DATA_DIR = PROJECT_ROOT / "data"
     DOCS_DIR = PROJECT_ROOT / "docs"
+    REPORTS_DIR = PROJECT_ROOT / "docs" / "reports"
     BRONZE_DIR = DATA_DIR / "bronze"
     SILVER_DIR = DATA_DIR / "silver"
     GOLD_DIR = DATA_DIR / "gold"
@@ -95,6 +96,7 @@ class Config:
         cls.CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
         cls.LOGS_DIR.mkdir(parents=True, exist_ok=True)
         cls.DOCS_DIR.mkdir(parents=True, exist_ok=True)
+        cls.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 Config.ensure_directories()

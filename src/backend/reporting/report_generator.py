@@ -454,7 +454,7 @@ def _fmt_streaming_section(
 
 def generate_data_profiling_report(output_path: Path | None = None, sample_files: int = 3) -> Path:
     """Generate a markdown profiling report for all ingested sources."""
-    output = output_path or (Config.DOCS_DIR / "data-profiling-report.md")
+    output = output_path or (Config.REPORTS_DIR / "data-profiling-report.md")
     bronze = BronzeStorage()
 
     tlc_files = bronze.list_files(source="tlc/yellow", pattern=_PARQUET_GLOB)
@@ -842,7 +842,7 @@ def generate_processing_report(
     output_path: Path | None = None, sample_files_for_stats: int = 2
 ) -> Path:
     """Generate a markdown processing report from current layer artifacts."""
-    output = output_path or (Config.DOCS_DIR / "processing-report.md")
+    output = output_path or (Config.REPORTS_DIR / "processing-report.md")
 
     bronze = BronzeStorage()
     silver = SilverStorage()

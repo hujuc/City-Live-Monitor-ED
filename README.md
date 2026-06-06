@@ -145,8 +145,8 @@ uv run clm --help
 | `clm validate-bronze` | Check _ingestion_timestamp + schema drift across all sources |
 | `clm backfill-bronze-meta` | Create .meta.json sidecars for existing TLC Parquet files |
 | `clm backfill-ndjson-meta` | Backfill ingestion metadata for NDJSON bronze files |
-| `clm report-data-profiling` | Generate docs/data-profiling-report.md |
-| `clm report-processing` | Generate docs/processing-report.md |
+| `clm report-data-profiling` | Generate docs/reports/data-profiling-report.md |
+| `clm report-processing` | Generate docs/reports/processing-report.md |
 | `clm backfill-noise311-daily-counts` | Build daily noise count history for ML |
 | `clm backfill-events-daily-counts` | Build daily event count history for ML |
 | `clm train-model` | Build ML dataset from Silver and train HistGradientBoosting classifier |
@@ -309,8 +309,9 @@ Project documentation is maintained in `docs/` and includes:
 | Document | Purpose |
 |----------|--------|
 | [project-report.md](docs/project-report.md) | Complete technical report covering architecture, ingestion, processing, serving, results, and design decisions |
-| [data-profiling-report.md](docs/data-profiling-report.md) | Statistical profiles of Bronze layer sample files (schema, nulls, value distributions) |
-| [processing-report.md](docs/processing-report.md) | Row counts and retention metrics across Bronze → Silver → Gold transformations |
+| [data-profiling-report.md](docs/reports/data-profiling-report.md) | Statistical profiles of Bronze layer sample files (schema, nulls, value distributions) |
+| [processing-report.md](docs/reports/processing-report.md) | Row counts and retention metrics across Bronze → Silver → Gold transformations |
+| [storage-report.md](docs/reports/storage-report.md) | Medallion architecture, lakehouse implementation, data dictionary, query performance |
 | [project-plan.md](docs/project-plan.md) | Original project roadmap and milestones |
 
 Documentation is auto-generated via:
