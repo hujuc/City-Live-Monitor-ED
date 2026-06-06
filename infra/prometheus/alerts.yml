@@ -59,3 +59,29 @@ groups:
           severity: warning
         annotations:
           summary: "ML prediction parquet has not been updated in over 25 hours"
+
+  - name: minio
+    rules:
+      - alert: MinIODiskUsageHigh
+        expr: minio_node_disk_used_bytes / minio_node_disk_total_bytes > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MinIO disk usage above 90% — Gold table writes at risk"
+
+      - alert: MinIODiskCritical
+        expr: minio_node_disk_used_bytes / minio_node_disk_total_bytes > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO disk usage above 95% — Gold writes will fail imminently"
+
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO is unreachable — object storage offline"
