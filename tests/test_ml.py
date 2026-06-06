@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from backend.ml.classifier import FEATURE_COLS, train_classifier
+from backend.ml.predict import generate_predictions
 from backend.processing.batch.gold.ml_dataset_builder import (
     _extract_year_month,
     _in_date_range,
@@ -277,3 +278,20 @@ def test_train_classifier_missing_columns(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Missing columns"):
         train_classifier(dataset_path, tmp_path / "model.pkl")
+
+
+def test_generate_predictions_handles_date_objects(tmp_path: Path):
+    dataset_path = _make_ml_dataset(tmp_path, n=300)
+    model_path = tmp_path / "model.pkl"
+    train_classifier(dataset_path, model_path)
+
+    df = pd.read_parquet(dataset_path)
+    df["date"] = df["date"].dt.date
+    df.to_parquet(dataset_path, index=False)
+
+    output_path = tmp_path / "daily_prediction.parquet"
+    result = generate_predictions(dataset_path, model_path, output_path, horizon=7)
+
+    assert output_path.exists()
+    assert "today" in result
+    assert len(result["forecast"]) == 7
