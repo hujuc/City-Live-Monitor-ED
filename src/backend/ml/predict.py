@@ -102,6 +102,7 @@ def generate_predictions(
     and 'forecast' (list of dicts for future dates).
     """
     df = pd.read_parquet(dataset_path)
+    df["date"] = pd.to_datetime(df["date"], utc=True)
     model = joblib.load(model_path)
 
     future_df: pd.DataFrame | None = None
