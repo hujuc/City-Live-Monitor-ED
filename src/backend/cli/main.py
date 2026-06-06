@@ -4,6 +4,7 @@ CLI Entry Point
 Command-line interface for the City Live Monitor platform.
 """
 
+import os
 import time
 from io import StringIO
 from pathlib import Path
@@ -792,6 +793,21 @@ def backfill_events_daily_counts(start_date: str, end_date: str) -> None:
         )
 
 
+def _push_ml_metrics(gauges: dict[str, float], job: str = "ml_pipeline") -> None:
+    """Push a dict of gauge metrics to the Pushgateway (silently skipped if unavailable)."""
+    pushgateway_url = os.environ.get("PUSHGATEWAY_URL", "http://pushgateway:9091")
+    try:
+        from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+
+        registry = CollectorRegistry()
+        for name, value in gauges.items():
+            Gauge(name, name.replace("_", " "), registry=registry).set(value)
+        push_to_gateway(pushgateway_url, job=job, registry=registry)
+        logger.debug("[metrics] pushed {} gauge(s) to {}", len(gauges), pushgateway_url)
+    except Exception as exc:
+        logger.debug("[metrics] pushgateway unavailable, skipping push: {}", exc)
+
+
 @cli.command("train-model")
 @click.option("--start-date", default="2023-01-01", show_default=True, help="Training window start")
 @click.option(
@@ -838,6 +854,18 @@ def train_model(start_date: str, end_date: str) -> None:
         bar = "█" * int(imp * 40)
         click.echo(f"  {feat:30s} {imp:.4f}  {bar}")
 
+    _push_ml_metrics(
+        {
+            "ml_classifier_roc_auc": results["roc_auc"],
+            "ml_classifier_f1_score": results["f1"],
+            "ml_classifier_accuracy": results["accuracy"],
+            "ml_classifier_train_size": float(results["train_size"]),
+            "ml_cv_roc_auc_mean": results["cv_mean"],
+            "ml_cv_roc_auc_std": results["cv_std"],
+            "ml_last_retrain_timestamp_seconds": float(time.time()),
+        }
+    )
+
 
 @cli.command("predict-activity")
 @click.option("--horizon", default=7, show_default=True, help="Number of future days to forecast.")
@@ -875,6 +903,13 @@ def predict_activity(horizon: int) -> None:
                 d = d.date()
             click.echo(f"  {str(d):<12} {row['activity_label']:<18} {row['probability']:>6.1%}")
         click.echo()
+
+    _push_ml_metrics(
+        {
+            "ml_last_prediction_timestamp_seconds": float(time.time()),
+            "ml_today_high_activity_probability": float(prob),
+        }
+    )
 
 
 if __name__ == "__main__":

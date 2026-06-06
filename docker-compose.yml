@@ -41,6 +41,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -172,12 +173,18 @@ services:
     ports:
       - "9308:9308"
 
+  pushgateway:
+    image: prom/pushgateway:v1.11.0
+    ports:
+      - "9091:9091"   # Push endpoint for batch jobs (ML pipeline, Airflow tasks)
+
   prometheus:
     image: prom/prometheus:v3.11.3
     ports:
       - "9090:9090"   # UI → http://localhost:9090
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
