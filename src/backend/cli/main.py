@@ -795,7 +795,7 @@ def backfill_events_daily_counts(start_date: str, end_date: str) -> None:
 
 def _push_ml_metrics(gauges: dict[str, float], job: str = "ml_pipeline") -> None:
     """Push a dict of gauge metrics to the Pushgateway (silently skipped if unavailable)."""
-    pushgateway_url = os.environ.get("PUSHGATEWAY_URL", "http://pushgateway:9091")
+    pushgateway_url = os.environ.get("PUSHGATEWAY_URL", "http://localhost:9091")
     try:
         from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 

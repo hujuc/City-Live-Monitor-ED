@@ -90,6 +90,7 @@ services:
         pandas pyarrow python-dotenv
         holidays scikit-learn joblib numpy prometheus-client
       PYTHONPATH: /opt/airflow/src
+      PUSHGATEWAY_URL: http://pushgateway:9091
       # Airflow 3.x Simple Auth Manager config is under [core]
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_USER:-admin}:admin
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_passwords.json
@@ -154,6 +155,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ENABLED: "true"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PUSHGATEWAY_URL: http://pushgateway:9091
     env_file:
       - .env
     depends_on:
