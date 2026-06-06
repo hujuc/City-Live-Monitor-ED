@@ -1,5 +1,5 @@
 {
-  "title": "NYC Nightlife Pulse — Pipeline Health",
+  "title": "NYC Nightlife Pulse - Pipeline Health",
   "uid": "nyc-pipeline",
   "schemaVersion": 38,
   "refresh": "10s",
@@ -7,7 +7,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "Kafka Consumer Lag — noise311",
+      "title": "Kafka Consumer Lag - noise311",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
       "targets": [
@@ -19,7 +19,7 @@
     },
     {
       "id": 2,
-      "title": "Kafka Consumer Lag — events",
+      "title": "Kafka Consumer Lag - events",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
       "targets": [
@@ -31,7 +31,7 @@
     },
     {
       "id": 3,
-      "title": "Messages In — noise311.raw",
+      "title": "Messages In - noise311.raw",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
       "targets": [
@@ -43,7 +43,7 @@
     },
     {
       "id": 4,
-      "title": "Messages In — events.raw",
+      "title": "Messages In - events.raw",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
       "targets": [
@@ -55,7 +55,7 @@
     },
     {
       "id": 5,
-      "title": "DLQ New Messages (10m) — noise311.dlq",
+      "title": "DLQ New Messages (10m) - noise311.dlq",
       "description": "Rate of new dead-letter messages in the last 10 minutes. Red = DLQ is actively growing.",
       "type": "stat",
       "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
@@ -76,7 +76,7 @@
     },
     {
       "id": 6,
-      "title": "DLQ New Messages (10m) — events.dlq",
+      "title": "DLQ New Messages (10m) - events.dlq",
       "description": "Rate of new dead-letter messages in the last 10 minutes. Red = DLQ is actively growing.",
       "type": "stat",
       "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },

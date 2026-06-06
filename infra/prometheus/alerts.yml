@@ -89,3 +89,45 @@ groups:
           severity: critical
         annotations:
           summary: "MinIO is unreachable — object storage offline"
+
+  - name: airflow
+    rules:
+      - alert: AirflowSchedulerDown
+        expr: increase(airflow_scheduler_heartbeat[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Airflow scheduler has not sent a heartbeat in 5 minutes — DAGs will not run"
+
+      - alert: AirflowDAGImportErrors
+        expr: airflow_dag_processing_import_errors > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} DAG file(s) have import errors — those DAGs will not be scheduled"
+
+      - alert: AirflowDAGProcessingStale
+        expr: airflow_dag_processing_total_parse_time == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Airflow DAG processor has not run in 10 minutes — scheduler may be idle"
+
+      - alert: AirflowDailyPredictionStale
+        expr: time() - airflow_dag_last_success_timestamp_seconds{dag_id="city_live_monitor_daily_prediction"} > 172800
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "daily_prediction DAG has not completed successfully in over 2 days"
+
+      - alert: AirflowExecutorNoSlots
+        expr: airflow_executor_open_slots == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "All Airflow executor slots are occupied — tasks are queuing"

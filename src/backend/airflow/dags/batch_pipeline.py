@@ -42,6 +42,17 @@ except ImportError:  # pragma: no cover - airflow is available in the Airflow co
     BashOperator = _AirflowStub
 
 
+def _push_success_cmd(dag_id: str) -> str:
+    return f"""python3 << 'PYEOF'
+import os, time
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+r = CollectorRegistry()
+Gauge('airflow_dag_last_success_timestamp_seconds', 'Last successful run', ['dag_id'], registry=r).labels(dag_id='{dag_id}').set(time.time())
+push_to_gateway(os.environ.get('PUSHGATEWAY_URL', 'http://pushgateway:9091'), job='airflow_dag_success', registry=r)
+PYEOF
+"""
+
+
 def _on_failure(context: dict) -> None:  # type: ignore[type-arg]
     ti = context.get("task_instance")
     exc = context.get("exception")
@@ -109,5 +120,11 @@ with DAG(
         bash_command="cd /opt/airflow/src && python -m backend.cli.main gold-build-all",
     )
 
+    push_success = BashOperator(
+        task_id="push_dag_success_metric",
+        bash_command=_push_success_cmd("city_live_monitor_batch_pipeline"),
+    )
+
     ingest_tlc_bronze >> process_tlc
     _ = [process_tlc, process_events, process_noise] >> build_gold  # type: ignore[operator]
+    _ = build_gold >> push_success  # type: ignore[operator]

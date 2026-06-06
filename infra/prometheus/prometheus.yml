@@ -24,3 +24,7 @@ scrape_configs:
     honor_labels: true
     static_configs:
       - targets: ["pushgateway:9091"]
+
+  - job_name: airflow
+    static_configs:
+      - targets: ["statsd-exporter:9102"]
