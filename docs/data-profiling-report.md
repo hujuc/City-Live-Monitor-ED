@@ -1,7 +1,7 @@
 # Data Profiling Report
 
 **Authors:** Gabriel Silva · Hugo Castro, University of Aveiro, 2026
-**Generated:** 2026-05-19
+**Generated:** 2026-06-06
 **Sources profiled:** NYC TLC Yellow Taxi (Bronze), NYC Permitted Events (Bronze), 311 Noise Complaints (Bronze)
 
 ---
@@ -11,8 +11,8 @@
 | Source | Files | Rows sampled | Critical issues |
 |--------|------:|-------------:|----------------|
 | TLC Yellow Taxi (batch) | 35 Parquet | 9,384,487 (3 file(s)) | Negative fares/tips, extreme distances, ~2.3% nulls in optional fields |
-| NYC Permitted Events (streaming) | 10 NDJSON | 114,266 | `event_street_side` 99.3% null; `cemsid` 0.6% null |
-| 311 Noise Complaints (streaming) | 5 NDJSON | 1,521,642 | `closed_date` 1.6% null (open complaints); `vehicle_type` 94.5% null |
+| NYC Permitted Events (streaming) | 17 NDJSON | 6,000 | `event_street_side` 95.7% null; `cemsid` 4.5% null |
+| 311 Noise Complaints (streaming) | 11 NDJSON | 2,000 | `closed_date` 0.1% null (open complaints); `vehicle_type` 94.5% null |
 
 Overall data quality is **good for the batch source and adequate for streaming**. The dominant issues are: (1) a small fraction of TLC trips with physically impossible values (negative fares, distances > 100 miles), and (2) sparse optional columns in both Socrata sources that carry no analytical value and can be safely ignored.
 
@@ -92,16 +92,16 @@ Schema note: `airport_fee` was added mid-2022 and `Airport_fee` (capital A) appe
 
 ### 2.1 Coverage and Volume
 
-- Files: 10 NDJSON polling snapshots, April 2026 - May 2026
-- Total Bronze rows: 309,318 (with cross-snapshot duplicates; each poll returns the full historical dataset)
-- Sample used for profiling: 114,266 rows from first 3 snapshot(s)
+- Files: 17 NDJSON polling snapshots, April 2026 - May 2026
+- Total Bronze rows: 243,897 (with cross-snapshot duplicates; each poll returns the full historical dataset)
+- Sample used for profiling: 6,000 rows from first 3 snapshot(s)
 
 ### 2.2 Schema
 
 | Column | Type | Null % | Notes |
 |--------|------|-------:|-------|
 | `event_id` | str | 0.0 | Unique Socrata row identifier |
-| `event_name` | str | 0.06 | Official event name |
+| `event_name` | str | 0.15 | Official event name |
 | `start_date_time` | str | 0.0 | Local time |
 | `end_date_time` | str | 0.0 | Local time |
 | `event_agency` | str | 0.0 | Permitting agency |
@@ -111,8 +111,10 @@ Schema note: `airport_fee` was added mid-2022 and `Airport_fee` (capital A) appe
 | `street_closure_type` | str | 0.0 | Full / Partial / No closure |
 | `community_board` | str | 0.0 |  |
 | `police_precinct` | str | 0.0 |  |
-| `cemsid` | str | 0.64 | Internal city event ID |
-| `event_street_side` | str | 99.34 | Almost entirely null; drop |
+| `cemsid` | str | 4.55 | Internal city event ID |
+| `_ingestion_timestamp` | str | 0.0 | Injected at ingest time |
+| `_backfilled` | bool | 0.0 |  |
+| `event_street_side` | str | 95.65 | Almost entirely null; drop |
 
 ### 2.3 Data Quality Issues
 
@@ -120,8 +122,8 @@ Schema note: `airport_fee` was added mid-2022 and `Airport_fee` (capital A) appe
 |-------|----------|---------|
 | Cross-snapshot duplicates | High | Deduplicate by `event_id` at Silver |
 | Local timestamps (no timezone) | Medium | Convert to UTC in Silver |
-| `event_street_side` 99.3% null | Low | Drop column |
-| `cemsid` 0.6% null | Low | Passthrough; not used in analysis |
+| `event_street_side` 95.7% null | Low | Drop column |
+| `cemsid` 4.5% null | Low | Passthrough; not used in analysis |
 | `event_name` ~0.1% null | Low | Drop rows with missing name |
 
 ### 2.4 Cleaning Recommendations
@@ -137,9 +139,9 @@ Schema note: `airport_fee` was added mid-2022 and `Airport_fee` (capital A) appe
 
 ### 3.1 Coverage and Volume
 
-- Files: 5 NDJSON polling snapshots, March 2026 - May 2026
-- Total Bronze rows: 1,521,998 (with cross-snapshot duplicates; latest snapshot is small due to incremental polling after backfill)
-- Sample used for profiling: 1,521,642 rows from first 3 snapshot(s)
+- Files: 11 NDJSON polling snapshots, March 2026 - May 2026
+- Total Bronze rows: 100,131 (with cross-snapshot duplicates; latest snapshot is small due to incremental polling after backfill)
+- Sample used for profiling: 2,000 rows from first 3 snapshot(s)
 
 ### 3.2 Schema
 
@@ -147,42 +149,43 @@ Schema note: `airport_fee` was added mid-2022 and `Airport_fee` (capital A) appe
 |--------|------|-------:|-------|
 | `unique_key` | str | 0.0 | Socrata row ID |
 | `created_date` | str | 0.0 | ISO-8601 |
-| `closed_date` | str | 1.63 | Null for open complaints |
+| `closed_date` | str | 0.05 | Null for open complaints |
 | `agency` | str | 0.0 | Always 'NYPD' for noise |
 | `agency_name` | str | 0.0 |  |
 | `complaint_type` | str | 0.0 | 'Noise - Residential', etc. |
 | `descriptor` | str | 0.0 | Specific noise type |
-| `location_type` | str | 6.86 |  |
-| `incident_zip` | str | 0.01 |  |
-| `incident_address` | str | 0.58 |  |
-| `street_name` | str | 0.59 |  |
-| `cross_street_1` | str | 0.78 |  |
-| `cross_street_2` | str | 0.75 |  |
-| `intersection_street_1` | str | 6.47 |  |
-| `intersection_street_2` | str | 6.43 |  |
-| `address_type` | str | 0.0 |  |
-| `city` | str | 3.07 |  |
-| `landmark` | str | 9.93 |  |
+| `location_type` | str | 17.0 |  |
+| `incident_zip` | str | 0.05 |  |
+| `incident_address` | str | 0.4 |  |
+| `street_name` | str | 0.4 |  |
+| `cross_street_1` | str | 2.75 |  |
+| `cross_street_2` | str | 2.75 |  |
+| `intersection_street_1` | str | 6.85 |  |
+| `intersection_street_2` | str | 6.85 |  |
+| `city` | str | 2.9 |  |
+| `landmark` | str | 7.75 |  |
 | `status` | str | 0.0 | Open / Closed |
-| `resolution_description` | str | 1.58 | Null for open complaints |
-| `resolution_action_updated_date` | str | 1.58 |  |
+| `resolution_description` | str | 4.4 | Null for open complaints |
+| `resolution_action_updated_date` | str | 4.4 |  |
 | `community_board` | str | 0.0 |  |
-| `council_district` | str | 0.42 |  |
+| `council_district` | str | 0.5 |  |
 | `police_precinct` | str | 0.0 |  |
-| `bbl` | str | 6.57 |  |
+| `bbl` | str | 6.4 |  |
 | `borough` | str | 0.0 | NYC borough |
-| `x_coordinate_state_plane` | str | 0.41 |  |
-| `y_coordinate_state_plane` | str | 0.41 |  |
+| `x_coordinate_state_plane` | str | 0.5 |  |
+| `y_coordinate_state_plane` | str | 0.5 |  |
 | `open_data_channel_type` | str | 0.0 |  |
 | `park_facility_name` | str | 0.0 |  |
 | `park_borough` | str | 0.0 |  |
-| `latitude` | str | 0.41 | Decimal degrees; may be null |
-| `longitude` | str | 0.41 | Decimal degrees; may be null |
-| `location.type` | str | 0.41 |  |
-| `location.coordinates` | object | 0.41 |  |
+| `latitude` | str | 0.5 | Decimal degrees; may be null |
+| `longitude` | str | 0.5 | Decimal degrees; may be null |
+| `_ingestion_timestamp` | str | 0.0 | Injected at ingest time |
+| `_backfilled` | bool | 0.0 |  |
+| `location.type` | str | 0.5 |  |
+| `location.coordinates` | object | 0.5 |  |
 | `descriptor_2` | str | 90.45 |  |
-| `facility_type` | str | 93.14 |  |
-| `vehicle_type` | str | 94.51 | Almost entirely null |
+| `address_type` | str | 95.05 |  |
+| `facility_type` | str | 95.1 |  |
 
 ### 3.3 Data Quality Issues
 
@@ -191,7 +194,7 @@ Schema note: `airport_fee` was added mid-2022 and `Airport_fee` (capital A) appe
 | Cross-snapshot duplicates | High | Deduplicate by `unique_key` at Silver |
 | `latitude`/`longitude` as string | Medium | Cast to float64 in Silver |
 | Local timestamps | Medium | Convert to UTC in Silver |
-| `closed_date` 1.6% null | Informational | Expected; reflects open complaints |
+| `closed_date` 0.1% null | Informational | Expected; reflects open complaints |
 | `vehicle_type` 94.5% null | Low | Drop or ignore |
 | Records outside NYC bounds | Low | Remove in Silver (geocoding filter) |
 
