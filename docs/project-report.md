@@ -25,7 +25,7 @@
    - 6.1 FastAPI REST API
    - 6.2 Apache Superset Dashboards
    - 6.3 Airflow Orchestration
-   - 6.4 Machine Learning Pipeline 
+   - 6.4 Machine Learning Pipeline
 7. [Results and Validation](#7-results-and-validation)
 8. [Design Trade-offs and Limitations](#8-design-trade-offs-and-limitations)
 9. [Conclusion](#9-conclusion)
@@ -537,7 +537,37 @@ The high late-event ratio for historical backfill data is not a pipeline failure
 
 ---
 
-## 8. Design Trade-offs and Limitations
+## 8. Monitoring and Observability
+
+The platform ships a production-grade observability stack that starts automatically with `docker compose up`. No manual configuration is required.
+
+### Infrastructure
+
+| Component | Role |
+| --------- | ---- |
+| Prometheus | Scrapes all targets every 15 s; stores time-series metrics |
+| Grafana | Renders four pre-provisioned dashboards from `infra/grafana/dashboards/` |
+| Pushgateway | Accepts push metrics from short-lived jobs (Airflow tasks, ML runs) |
+| kafka-exporter | Exposes Kafka broker and consumer group metrics to Prometheus |
+| statsd-exporter | Translates Airflow StatsD UDP metrics to Prometheus format |
+
+### Four dashboards
+
+**Pipeline Health (`nyc-pipeline`)** monitors the Kafka streaming layer: consumer lag per partition, message ingestion rate, dead-letter queue growth, and broker availability. Consumer lag alerts fire when lag exceeds 500 messages for 5 minutes; DLQ alerts fire immediately on any new dead-letter message.
+
+**Backend API (`nyc-backend-api`)** monitors the FastAPI backend: request rate, P95 latency, error-rate percentage, HTTP status distribution by endpoint, and the three ML health panels (ROC-AUC score, time since last retrain, time since last prediction). ML metrics are pushed to Pushgateway by the Airflow retrain and prediction tasks using `prometheus_client`.
+
+**MinIO Storage (`nyc-minio`)** monitors disk usage percentage, free bytes, total object count, and S3 API traffic. Disk alerts fire at 90% (warning) and 95% (critical), because the Gold pipeline writes several gigabytes per batch run.
+
+**Airflow (`nyc-airflow`)** monitors the scheduler heartbeat (Alive/Dead), DAG bag size, import error count, executor slot usage, and — via Pushgateway — the time elapsed since each DAG last succeeded. Each DAG's final task pushes `airflow_dag_last_success_timestamp_seconds` to Pushgateway; Grafana displays `time() - airflow_dag_last_success_timestamp_seconds` with a human-readable duration unit.
+
+### Alert rules
+
+Eighteen alert rules across five groups (`kafka`, `backend`, `ml`, `minio`, `airflow`) are defined in `infra/prometheus/alerts.yml`. Full details are in `docs/monitoring-dashboards.md`.
+
+---
+
+## 9. Design Trade-offs and Limitations
 
 ### Trade-off: local filesystem vs cloud object storage
 

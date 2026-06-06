@@ -4,7 +4,7 @@
 
 End-to-end hybrid data platform for NYC urban analytics. It combines batch ingestion of NYC Yellow Taxi Parquet files with streaming ingestion of NYC Open Data feeds for 311 noise complaints and permitted events, processes the data through a Bronze → Silver → Gold medallion architecture, and exposes the results through a REST API, Apache Superset dashboards, and operational monitoring.
 
-**Authors:** Gabriel Silva · Hugo Castro — University of Aveiro, 2026
+**Authors:** Gabriel Silva · Hugo Castro - University of Aveiro, 2026
 
 ---
 
@@ -113,13 +113,14 @@ make health                    # check all services
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Superset dashboards | http://localhost:8088 | admin / admin |
-| Airflow scheduler | http://localhost:8080 | admin / admin |
-| FastAPI REST API | http://localhost:8000 | — |
-| MinIO console | http://localhost:9001 | minioadmin / minioadmin |
-| Kafka broker | localhost:9092 | — |
-| Prometheus | http://localhost:9090 | — |
-| Grafana | http://localhost:3000 | admin / `GRAFANA_PASSWORD` |
+| Superset dashboards | <http://localhost:8088> | admin / admin |
+| Airflow scheduler | <http://localhost:8080> | admin / admin |
+| FastAPI REST API | <http://localhost:8000> | — |
+| MinIO console | <http://localhost:9001> | minioadmin / minioadmin |
+| Kafka broker | `localhost:9092` | — |
+| Prometheus | <http://localhost:9090> | — |
+| Grafana | <http://localhost:3000> | admin / `GRAFANA_PASSWORD` |
+| Pushgateway | <http://localhost:9091> | — |
 
 ---
 
@@ -180,7 +181,9 @@ uv run clm --help
 | `make superset-bootstrap` | Register DuckDB views + import dashboards |
 | `make airflow-up` | Start Airflow only |
 | `make kafka-wait` | Start Kafka and wait for readiness |
-| `make health` | Check API, Superset, Airflow, MinIO |
+| `make health` | Check API, Superset, Airflow, MinIO, Prometheus, Grafana, Pushgateway |
+| `make demo-kafka` | Full streaming demo: produce noise311 + events → aggregate → watch Grafana |
+| `make demo-ml` | Train classifier + predict → push metrics to Pushgateway → watch Grafana |
 | `make test` | Run test suite |
 | `make lint` | Run ruff + black |
 | `make clean-silver-gold` | Wipe Silver + Gold (Bronze preserved) |
@@ -244,6 +247,36 @@ Five dashboards query DuckDB views that read Parquet files directly from Gold. T
 
 ---
 
+## Monitoring & Observability
+
+`make docker-up` starts a full observability stack alongside the pipeline services. No configuration is required - Prometheus scrapes all targets automatically and Grafana loads dashboards from `infra/grafana/dashboards/`.
+
+### Grafana dashboards
+
+| Dashboard | URL | What it monitors |
+| --------- | --- | ---------------- |
+| Kafka Pipeline | <http://localhost:3000/d/nyc-pipeline> | Consumer lag, message rate, DLQ depth, broker health |
+| Backend API | <http://localhost:3000/d/nyc-backend-api> | Request rate, P95 latency, error rate, ML model health |
+| MinIO Storage | <http://localhost:3000/d/nyc-minio> | Disk usage %, free space, S3 request rate, traffic |
+| Airflow | <http://localhost:3000/d/nyc-airflow> | Scheduler health, DAG last run times, task execution rate |
+
+### Prometheus alerts
+
+Alerts are defined in `infra/prometheus/alerts.yml` and cover Kafka consumer lag, DLQ growth, backend errors, ML model staleness, MinIO disk pressure, and Airflow scheduler health. Active alerts appear in Prometheus at <http://localhost:9090/alerts>.
+
+### ML metrics
+
+When `make train-model` or `make predict` runs, metrics (`ml_classifier_roc_auc`, `ml_last_retrain_timestamp_seconds`, `ml_last_prediction_timestamp_seconds`) are pushed to Pushgateway and appear in the Backend API Grafana dashboard within one scrape cycle (~15 s).
+
+### Demo targets
+
+```bash
+make demo-kafka   # produce noise311 + events → 30s pause → aggregate; watch Grafana Kafka dashboard
+make demo-ml      # train + predict → push ML metrics; watch Grafana Backend API dashboard
+```
+
+---
+
 ## Machine Learning
 
 The platform includes a daily activity prediction pipeline that forecasts high-activity days using taxi demand, noise complaints, and permitted events. The ML pipeline is automated via Airflow but can also be triggered manually.
@@ -281,8 +314,8 @@ Project documentation is maintained in `docs/` and includes:
 | [project-plan.md](docs/project-plan.md) | Original project roadmap and milestones |
 
 Documentation is auto-generated via:
-- `make report-data-profiling` — samples Bronze files and produces stats
-- `make report-processing` — reads current pipeline artifacts and computes retention
+- `make report-data-profiling` - samples Bronze files and produces stats
+- `make report-processing` - reads current pipeline artifacts and computes retention
 
 To regenerate:
 ```bash
@@ -319,4 +352,3 @@ src/
 └── config/
     └── settings.py       # Centralised configuration (reads .env)
 ```
-

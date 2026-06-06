@@ -154,7 +154,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Populated Storage: demonstrable Bronze (62 files), Silver (279+ files), Gold (7 tables + star schema), MinIO mirror
 - [-] Dashboards: 4 dashboards working locally — screenshots and Superset export still pending
 - [x] Project Report (`docs/project-report.md`) — merged to master; covers full orchestrated system
-- [ ] Final Presentation: `docs/presentation1_slides.pdf` exists — verify it covers ML pipeline, Prometheus/Grafana monitoring, and complete 4-dashboard system
+- [ ] Final Presentation
 
 ---
 
