@@ -63,7 +63,9 @@ groups:
   - name: minio
     rules:
       - alert: MinIODiskUsageHigh
-        expr: minio_node_disk_used_bytes / minio_node_disk_total_bytes > 0.90
+        expr: >
+          (minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes)
+          / minio_cluster_capacity_raw_total_bytes > 0.90
         for: 5m
         labels:
           severity: warning
@@ -71,7 +73,9 @@ groups:
           summary: "MinIO disk usage above 90% — Gold table writes at risk"
 
       - alert: MinIODiskCritical
-        expr: minio_node_disk_used_bytes / minio_node_disk_total_bytes > 0.95
+        expr: >
+          (minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes)
+          / minio_cluster_capacity_raw_total_bytes > 0.95
         for: 2m
         labels:
           severity: critical

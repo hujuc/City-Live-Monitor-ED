@@ -1,5 +1,5 @@
 {
-  "title": "NYC Nightlife Pulse — MinIO Storage",
+  "title": "NYC Nightlife Pulse - MinIO Storage",
   "uid": "nyc-minio",
   "schemaVersion": 38,
   "refresh": "30s",
@@ -8,12 +8,12 @@
     {
       "id": 1,
       "title": "Disk Usage %",
-      "description": "Percentage of MinIO disk used. Red above 95% — Gold writes will fail.",
+      "description": "Raw disk used as a percentage of total. Red above 95% - Gold writes will fail.",
       "type": "stat",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "100 * minio_node_disk_used_bytes / minio_node_disk_total_bytes",
+          "expr": "100 * (minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes) / minio_cluster_capacity_raw_total_bytes",
           "legendFormat": "used %"
         }
       ],
@@ -37,12 +37,12 @@
     {
       "id": 2,
       "title": "Free Disk Space",
-      "description": "Absolute free space remaining on the MinIO volume.",
+      "description": "Raw free bytes remaining on the MinIO volume.",
       "type": "stat",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "minio_node_disk_free_bytes",
+          "expr": "minio_cluster_capacity_raw_free_bytes",
           "legendFormat": "free"
         }
       ],
@@ -66,9 +66,8 @@
     {
       "id": 3,
       "title": "MinIO Online",
-      "description": "Green = Prometheus can scrape MinIO metrics endpoint.",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
           "expr": "up{job=\"minio\"}",
@@ -91,94 +90,122 @@
     },
     {
       "id": 4,
-      "title": "Total Disk Capacity",
+      "title": "Total Objects Stored",
       "type": "stat",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
-          "expr": "minio_node_disk_total_bytes",
-          "legendFormat": "total"
+          "expr": "minio_cluster_usage_object_total",
+          "legendFormat": "objects"
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "color": { "mode": "fixed", "fixedColor": "blue" }
-        }
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }
       },
       "options": { "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } }
     },
     {
       "id": 5,
       "title": "Disk Usage Over Time",
-      "description": "Used vs free bytes over time — useful to spot rapid growth from batch pipeline runs.",
+      "description": "Raw free vs total bytes - growth spikes align with batch pipeline runs.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "minio_node_disk_used_bytes",
+          "expr": "minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes",
           "legendFormat": "used"
         },
         {
-          "expr": "minio_node_disk_free_bytes",
+          "expr": "minio_cluster_capacity_raw_free_bytes",
           "legendFormat": "free"
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "bytes" }
-      }
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
     },
     {
       "id": 6,
-      "title": "S3 Request Rate",
-      "description": "Rate of S3 API calls by operation type.",
+      "title": "Data Stored (usable)",
+      "description": "Total usable data stored - this is what the Gold layer parquet files consume.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (api) (rate(minio_s3_requests_total[1m]))",
-          "legendFormat": "{{api}}"
+          "expr": "minio_cluster_usage_total_bytes",
+          "legendFormat": "data stored"
+        },
+        {
+          "expr": "minio_cluster_capacity_usable_total_bytes",
+          "legendFormat": "usable capacity"
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "reqps" }
-      }
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
     },
     {
       "id": 7,
-      "title": "S3 Error Rate",
-      "description": "Rate of S3 API errors. Spikes here correlate with Gold table upload failures.",
+      "title": "S3 Incoming Requests",
+      "description": "Rate of incoming S3 API requests.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (api) (rate(minio_s3_errors_total[1m]))",
-          "legendFormat": "{{api}} errors"
+          "expr": "rate(minio_s3_requests_incoming_total[1m])",
+          "legendFormat": "req/s"
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "reqps" }
-      }
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
     },
     {
       "id": 8,
-      "title": "S3 Traffic",
-      "description": "Bytes sent and received by MinIO — upload spikes align with Gold table writes.",
+      "title": "S3 Rejected Requests",
+      "description": "Requests rejected by auth, invalid headers, or bad timestamps - correlates with Gold upload failures.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "rate(minio_s3_traffic_sent_bytes_total[1m])",
+          "expr": "rate(minio_s3_requests_rejected_auth_total[1m])",
+          "legendFormat": "auth rejected"
+        },
+        {
+          "expr": "rate(minio_s3_requests_rejected_invalid_total[1m])",
+          "legendFormat": "invalid rejected"
+        },
+        {
+          "expr": "rate(minio_s3_requests_rejected_header_total[1m])",
+          "legendFormat": "header rejected"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 9,
+      "title": "S3 Traffic",
+      "description": "Bytes sent and received - upload spikes show Gold table writes.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(minio_s3_traffic_sent_bytes[1m])",
           "legendFormat": "sent"
         },
         {
-          "expr": "rate(minio_s3_traffic_received_bytes_total[1m])",
+          "expr": "rate(minio_s3_traffic_received_bytes[1m])",
           "legendFormat": "received"
         }
       ],
-      "fieldConfig": {
-        "defaults": { "unit": "Bps" }
-      }
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    },
+    {
+      "id": 10,
+      "title": "MinIO Memory Usage",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "minio_node_process_resident_memory_bytes",
+          "legendFormat": "RSS"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
     }
   ]
 }
