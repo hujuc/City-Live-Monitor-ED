@@ -21,8 +21,8 @@ Every message published to `noise311.raw` has this top-level structure:
 
 | Field | Type | Nullable | Description |
 |-------|------|:--------:|-------------|
-| `event_id` | string (32-char hex) | No | SHA-256 hash of `source + unique_key + created_date + incident_zip + complaint_type + descriptor` |
-| `source` | string | No | Always `"noise311"` |
+| `event_id` | string (32-char hex) | No | SHA-256 hash of `"nyc_311_noise" + unique_key + created_date + incident_zip + complaint_type + descriptor` (pipe-delimited) |
+| `source` | string | No | Always `"nyc_311_noise"` |
 | `timestamp` | string (ISO-8601 UTC) | No | Parsed from `created_date`; falls back to `now()` if unparseable |
 | `received_at` | string (ISO-8601 UTC) | No | Wall-clock time at normalization |
 | `payload` | object | No | Full raw Socrata row (see §1.2) |
@@ -47,10 +47,11 @@ Kafka message key: `event_id` (ensures same event always routes to same partitio
 ### 1.3 Rejection Rules (DLQ routing)
 
 A message is routed to `noise311.dlq` instead of `noise311.raw` if:
-- `created_date` is missing or cannot be parsed to a datetime
+
+- `created_date` is missing or empty (unparseable values fall back to `now()` and are not rejected)
 - Any exception is raised during envelope construction
 
-DLQ messages include a `reason` field (`"malformed_event"` or `"kafka_publish_failed"`) and the full raw row for replay.
+DLQ messages contain `reason` (`"malformed_event"` or `"kafka_publish_failed"`), `source`, `received_at`, and the raw row nested under `"payload"` for replay.
 
 ### 1.4 Delivery Semantics
 
@@ -78,8 +79,8 @@ Every message published to `events.raw` has this top-level structure:
 
 | Field | Type | Nullable | Description |
 |-------|------|:--------:|-------------|
-| `event_id` | string (32-char hex) | No | SHA-256 hash of `source + event_id + event_name + start_date_time` |
-| `source` | string | No | Always `"events"` |
+| `event_id` | string (32-char hex) | No | SHA-256 hash of `"nyc_permitted_events" + event_name + event_location + start_date_time + end_date_time` (pipe-delimited) |
+| `source` | string | No | Always `"nyc_permitted_events"` |
 | `timestamp` | string (ISO-8601 UTC) | No | Parsed from `start_date_time` |
 | `received_at` | string (ISO-8601 UTC) | No | Wall-clock time at normalization |
 | `payload` | object | No | Full raw Socrata row (see §2.2) |
@@ -127,7 +128,7 @@ These guarantees apply to both sources:
 |-----------|-------------|
 | `_ingestion_timestamp` | Every Bronze NDJSON row contains this field (UTC ISO-8601), injected before writing to disk, independently of Kafka publishing |
 | Deterministic `event_id` | Same source row always produces the same `event_id`; safe to re-ingest without creating phantom duplicates |
-| Bronze persistence | Each polling cycle writes a full NDJSON snapshot to `data/bronze/<source>/YYYY/MM/snapshot_<ISO8601Z>.ndjson` before any Kafka publish attempt. Bronze is independent of Kafka availability. |
+| Bronze persistence | Each polling cycle writes a full NDJSON snapshot to `data/bronze/<source>/YYYY/MM/snapshot_<YYYYMMDDTHHMMSSz>.ndjson` before any Kafka publish attempt. `<source>` is `nyc_311_noise` or `nyc_permitted_events`. Bronze is independent of Kafka availability. |
 | Circuit breaker | After 5 consecutive API failures, the poller enters a 120-second cooldown before retrying |
 | Pagination | Socrata responses are fetched in 2000-row pages; all pages are fetched before publishing to Kafka |
 | Checkpoint safety | The cursor (last-seen timestamp) is only advanced when all Kafka publishes for a batch succeed |

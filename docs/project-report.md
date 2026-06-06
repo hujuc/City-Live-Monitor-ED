@@ -27,8 +27,9 @@
    - 6.3 Airflow Orchestration
    - 6.4 Machine Learning Pipeline
 7. [Results and Validation](#7-results-and-validation)
-8. [Design Trade-offs and Limitations](#8-design-trade-offs-and-limitations)
-9. [Conclusion](#9-conclusion)
+8. [Monitoring and Observability](#8-monitoring-and-observability)
+9. [Design Trade-offs and Limitations](#9-design-trade-offs-and-limitations)
+10. [Conclusion](#10-conclusion)
 
 ---
 
@@ -223,16 +224,10 @@ def process_event(self, raw: dict) -> EventEnvelope | None:
     return envelope
 ```
 
-**Deduplication within a sliding window**: the processor maintains a dictionary of seen event IDs mapped to their arrival time. IDs older than the dedup window (default: 10 minutes) are expired to prevent unbounded memory growth:
+**Deduplication within a sliding window**: the processor maintains a dictionary of seen event IDs mapped to their arrival time. IDs older than the dedup window (default: 10 minutes) are expired to prevent unbounded memory growth. Eviction is handled by `_evict_old_ids()`, which is called from `_record_seen()` after a new event is accepted — keeping `_is_duplicate` itself a simple membership check:
 
 ```python
 def _is_duplicate(self, envelope: EventEnvelope) -> bool:
-    now = datetime.now(tz=UTC)
-    # expire old entries first
-    expired = [eid for eid, seen_at in self._seen_ids.items()
-               if (now - seen_at) > self._dedup_window]
-    for eid in expired:
-        del self._seen_ids[eid]
     return envelope.event_id in self._seen_ids
 ```
 
@@ -383,7 +378,7 @@ Available endpoints:
 
 | Endpoint | Filters | Description |
 |----------|---------|-------------|
-| `GET /health` |: | Service health check |
+| `GET /health` | — | Service health check |
 | `GET /gold/taxi-demand` | borough, zone_id, hour_of_day, day_of_week, is_weekend, limit | Taxi demand aggregates |
 | `GET /gold/events` | borough, is_nightlife_event, is_weekend_event, start_after, start_before, limit | Event schedule |
 | `GET /gold/noise` | borough, complaint_type, descriptor, hour_of_day, day_of_week, is_weekend, limit | Noise complaint aggregates |
@@ -441,7 +436,7 @@ The dashboard bootstrap is scripted and idempotent: `make superset-bootstrap` lo
 
 ### 6.3 Airflow Orchestration
 
-The batch pipeline is orchestrated by an Airflow DAG (`src/backend/airflow/dags/batch_pipeline.py`) that runs daily. The DAG has five tasks with the following dependency structure:
+The batch pipeline is orchestrated by an Airflow DAG (`src/backend/airflow/dags/batch_pipeline.py`) that runs weekly. The DAG has six tasks with the following dependency structure:
 
 ```
 ingest_tlc_to_bronze
@@ -454,6 +449,9 @@ process_tlc_bronze_to_silver    process_events_bronze_to_silver
                       └───────┬───────┘
                               ▼
                        build_gold_tables
+                              │
+                              ▼
+                   push_dag_success_metric
 ```
 
 `process_events_bronze_to_silver` and `process_noise311_bronze_to_silver` run independently of `ingest_tlc_to_bronze` and in parallel with each other. All three Silver tasks must complete before `build_gold_tables` runs.
@@ -470,17 +468,17 @@ DEFAULT_ARGS = {
 
 `max_active_runs=1` prevents overlapping pipeline runs, which would cause race conditions on the Silver and Gold output directories. `catchup=False` prevents Airflow from trying to backfill missed daily runs when the platform is first deployed.
 
-In addition to the batch DAG, the repository also includes `src/backend/airflow/dags/daily_prediction.py`, which refreshes noise counts, retrains the classifier, and generates the daily prediction artefact at 06:00 UTC.
+In addition to the batch DAG, the repository includes two ML DAGs: `src/backend/airflow/dags/daily_prediction.py` (daily at 06:00 UTC), which refreshes noise counts and generates the daily prediction artefact; and `src/backend/airflow/dags/weekly_retrain.py` (weekly, Sunday at 05:00 UTC), which builds the ML dataset and retrains the classifier.
 
 ### 6.4 Machine Learning Pipeline
 
-The ML pipeline is a separate Airflow DAG (`src/backend/airflow/dags/daily_prediction.py`) that generates daily activity predictions using the trained HistGradientBoosting classifier. The workflow consists of three steps:
+The ML pipeline is split across two Airflow DAGs that differ in frequency. `weekly_retrain.py` (Sunday 05:00 UTC) builds the training dataset and retrains the classifier. `daily_prediction.py` (daily 06:00 UTC) refreshes historical noise counts and generates fresh predictions from the latest model. Together they cover three steps:
 
-1. **Backfill historical counts** (optional): fetch aggregated daily noise and event counts from the Socrata API to extend training beyond the Bronze/Silver window. Output saved to `data/gold/ml_training/noise311_historical_counts.parquet` and `events_historical_counts.parquet`.
+1. **Backfill historical noise counts** (`daily_prediction.py`, task `refresh_noise_counts`): fetch aggregated daily noise complaint counts from the Socrata API to extend training beyond the Bronze/Silver window. Output saved to `data/gold/ml_training/noise311_historical_counts.parquet`. Event counts are backfilled manually with `clm backfill-events-daily-counts`.
 
-2. **Build ML dataset and train model**: the `train-model` command reads Silver taxi trips, noise complaints, and events, computes calendar features (day-of-week, month, holidays, etc.), rolling noise features (7d/14d/30d averages, percentile rank), and event-derived features (dow-average, weekend/Friday indicators). A binary target (high/low activity) is derived from the training-set noise median to prevent label leakage. The `HistGradientBoostingClassifier` is trained with TimeSeriesSplit cross-validation (n=5). Output: `data/gold/ml_training/ml_dataset.parquet` and `data/gold/ml_training/activity_classifier.pkl`.
+2. **Build ML dataset and train model** (`weekly_retrain.py`): reads Silver taxi trips, noise complaints, and events, computes calendar features (day-of-week, month, holidays, etc.), rolling noise features (7d/14d/30d averages, percentile rank), and event-derived features (dow-average, weekend/Friday indicators). A binary target (high/low activity) is derived from the training-set noise median to prevent label leakage. The `HistGradientBoostingClassifier` is trained with TimeSeriesSplit cross-validation (n=5). Output: `data/gold/ml_training/ml_dataset.parquet` and `data/gold/ml_training/activity_classifier.pkl`.
 
-3. **Generate predictions**: the `predict-activity` command applies the trained model to all dates in the ML dataset and generates a 7-day forecast by extending the feature logic with holiday proximity and seasonal dummies. Output: `data/gold/ml_prediction/daily_prediction.parquet` containing date, predicted label, probability, and forecast flag.
+3. **Generate predictions** (`daily_prediction.py`, task `generate_predictions`): applies the trained model to all dates in the ML dataset and generates a 7-day forecast by extending the feature logic with holiday proximity and seasonal dummies. Output: `data/gold/ml_prediction/daily_prediction.parquet` containing date, predicted label, probability, and forecast flag.
 
 To manually trigger the ML pipeline:
 
@@ -573,7 +571,7 @@ The platform ships a production-grade observability stack that starts automatica
 
 ### Alert rules
 
-Eighteen alert rules across five groups (`kafka`, `backend`, `ml`, `minio`, `airflow`) are defined in `infra/prometheus/alerts.yml`. Full details are in `docs/monitoring-dashboards.md`.
+Fifteen alert rules across five groups (`kafka`, `backend`, `ml`, `minio`, `airflow`) are defined in `infra/prometheus/alerts.yml`. Full details are in `docs/monitoring-dashboards.md`.
 
 ---
 
@@ -611,7 +609,7 @@ The classifier model, ML dataset, and daily prediction parquet are generated at 
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 City Live Monitor now implements a complete batch, streaming, and ML analytics platform. The main current outcomes are:
 
@@ -619,7 +617,7 @@ City Live Monitor now implements a complete batch, streaming, and ML analytics p
 - **Two streaming sources** polled incrementally with checkpoint-based cursors, circuit breakers, and DLQ routing for malformed events.
 - **Gold tables for analytics and ML**, including taxi demand, events, noise, stream health metrics, star-schema tables, ML training data, and daily prediction artefacts.
 - **Five Superset dashboards** covering taxi, events, noise, streaming health, and prediction.
-- **Two Airflow DAGs**: one for batch medallion processing and one for daily prediction refresh.
+- **Three Airflow DAGs**: weekly batch medallion processing (`batch_pipeline`), daily prediction refresh (`daily_prediction`), and weekly classifier retraining (`weekly_retrain`).
 - **Monitoring stack** with Prometheus and Grafana, plus Kafka Exporter.
 
 The platform demonstrates that a hybrid batch/streaming/ML medallion architecture can be implemented on commodity hardware without managed cloud services, using open-source tools such as DuckDB, Kafka, MinIO, Airflow, Superset, Prometheus, and Grafana. The abstractions introduced (`BaseIngester`, `BaseProcessor`, `GoldStorage`, `BronzeValidator`) keep the processing code modular and let new sources or outputs be added without rewriting the existing pipeline.

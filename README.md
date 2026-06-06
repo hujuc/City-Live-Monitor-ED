@@ -147,12 +147,10 @@ uv run clm --help
 | `clm backfill-ndjson-meta` | Backfill ingestion metadata for NDJSON bronze files |
 | `clm report-data-profiling` | Generate docs/reports/data-profiling-report.md |
 | `clm report-processing` | Generate docs/reports/processing-report.md |
-| `clm backfill-noise311-daily-counts` | Build daily noise count history for ML |
-| `clm backfill-events-daily-counts` | Build daily event count history for ML |
-| `clm train-model` | Build ML dataset from Silver and train HistGradientBoosting classifier |
-| `clm predict-activity` | Generate daily predictions and 7-day forecast from the trained model |
 | `clm backfill-noise311-daily-counts` | Fetch historical daily noise311 complaint counts from Socrata for ML training |
 | `clm backfill-events-daily-counts` | Fetch historical daily event counts from Socrata for ML training |
+| `clm train-model` | Build ML dataset from Silver and train HistGradientBoosting classifier |
+| `clm predict-activity` | Generate daily predictions and 7-day forecast from the trained model |
 
 ---
 
@@ -174,8 +172,6 @@ uv run clm --help
 | `make backfill-ndjson-meta` | Backfill metadata for NDJSON bronze files |
 | `make train-model` | Train ML model and rebuild dataset from Silver |
 | `make predict` | Generate daily predictions and 7-day forecast |
-| `make backfill-noise-counts` | Fetch historical noise311 daily counts from Socrata |
-| `make backfill-events-counts` | Fetch historical event daily counts from Socrata |
 | `make docker-up` | Start all Docker services |
 | `make superset-up` | Start Superset only |
 | `make superset-bootstrap` | Register DuckDB views + import dashboards |
@@ -227,7 +223,7 @@ data/
 └── checkpoints/                         # Streaming cursor state
 ```
 
-Gold tables are also mirrored to MinIO (`s3://gold-layer/`) when `MINIO_ENABLED=true`.
+Standard Gold tables are mirrored to MinIO (`s3://gold-layer/`) when `MINIO_ENABLED=true`. ML artefacts (`ml_training`, `ml_prediction`) write directly and are not mirrored.
 
 The Silver batch processors are deterministic but not incremental in the sense of skipping previously processed Bronze files. They re-read Bronze and overwrite the canonical Silver partitions, so `make pipeline` intentionally rebuilds Silver and Gold from the current Bronze state.
 
@@ -286,8 +282,8 @@ The platform includes a daily activity prediction pipeline that forecasts high-a
 1. Ensure Silver layer is up-to-date (run `make pipeline`)
 2. (Optional) Backfill historical event and noise counts from Socrata:
    ```bash
-   make backfill-noise-counts
-   make backfill-events-counts
+   uv run clm backfill-noise311-daily-counts
+   uv run clm backfill-events-daily-counts
    ```
 3. Build ML dataset and train the classifier:
    ```bash
