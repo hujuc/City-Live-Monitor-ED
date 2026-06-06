@@ -1,7 +1,7 @@
 # Data Processing Report
 
 **Authors:** Gabriel Silva · Hugo Castro, University of Aveiro, 2026
-**Generated:** 2026-05-19
+**Generated:** 2026-06-06
 **Pipeline:** Bronze -> Silver -> Gold, Medallion Architecture
 
 ---
@@ -12,9 +12,9 @@
 |--------|------:|
 | Bronze TLC files processed | 35 |
 | Bronze TLC rows ingested | 123,897,542 |
-| Silver TLC rows written | 103,383,051 |
-| Rows removed by quality filters | 20,514,491 |
-| Retention rate | 83.4% |
+| Silver TLC rows written | 102,925,036 |
+| Rows removed by quality filters | 20,972,506 |
+| Retention rate | 83.1% |
 | Silver partitions created | 171 (year=YYYY/month=MM) |
 | Silver columns: source preserved | 19 |
 | Silver columns: derived/engineered | 15 |
@@ -28,13 +28,20 @@ Filter rules are applied sequentially. Percentages are relative to the sample da
 
 | Filter rule | Condition | Rows removed | % |
 |-------------|-----------|-------------:|--:|
-| `zero_or_negative_distance` | `trip_distance` <= 0 | 86,960 | 1.45% |
+| `out_of_range_year` | see Silver processor | 7 | 0.0% |
+| `zero_or_negative_distance` | `trip_distance` <= 0 | 86,959 | 1.45% |
 | `negative_fare` | `fare_amount` < 0 | 43,776 | 0.73% |
 | `negative_tip` | `tip_amount` < 0 | 9 | 0.0% |
 | `negative_total` | `total_amount` < 0 | 219 | 0.0% |
 | `zero_or_missing_passengers` | `passenger_count` < 1 | 232,193 | 3.88% |
-| `non_positive_duration` | dropoff <= pickup datetime | 139 | 0.0% |
-| **Total removed** | | **363,296** | **6.1%** |
+| `distance_over_100_miles` | see Silver processor | 68 | 0.0% |
+| `fare_over_500` | see Silver processor | 25 | 0.0% |
+| `passenger_count_over_6` | see Silver processor | 19 | 0.0% |
+| `tip_exceeds_fare` | see Silver processor | 5,358 | 0.09% |
+| `non_positive_duration` | dropoff <= pickup datetime | 138 | 0.0% |
+| `duration_under_1_minute` | see Silver processor | 15,906 | 0.27% |
+| `duration_over_24_hours` | see Silver processor | 35 | 0.0% |
+| **Total removed** | | **384,712** | **6.4%** |
 
 Note: `zero_or_missing_passengers` is typically the largest single contributor. Per-rule breakdown per file is logged via `FilterRuleStat` during each Silver run.
 
@@ -46,12 +53,12 @@ Note: `zero_or_missing_passengers` is typically the largest single contributor. 
 
 | Metric | Value |
 |--------|------:|
-| Bronze snapshots | 10 NDJSON files |
-| Bronze rows (total, with duplicates) | 309,318 |
+| Bronze snapshots | 17 NDJSON files |
+| Bronze rows (total, with duplicates) | 243,897 |
 | Polling interval | 30 minutes |
 | Deduplication key | `event_id` |
-| Silver rows (unique events) | 55,998 |
-| Cross-snapshot duplicate rate | 81.9% |
+| Silver rows (unique events) | 71,629 |
+| Cross-snapshot duplicate rate | 70.6% |
 
 The high duplicate rate is expected: the Socrata Events API returns the full historical dataset on every poll. Silver deduplication by `event_id` is the primary transformation.
 
@@ -59,11 +66,11 @@ The high duplicate rate is expected: the Socrata Events API returns the full his
 
 | Metric | Value |
 |--------|------:|
-| Bronze snapshots | 5 NDJSON files |
-| Bronze rows (total, with duplicates) | 1,521,998 |
+| Bronze snapshots | 11 NDJSON files |
+| Bronze rows (total, with duplicates) | 100,131 |
 | Polling interval | 30 seconds |
 | Deduplication key | `unique_key` |
-| Silver rows (unique complaints) | 1,521,997 |
+| Silver rows (unique complaints) | 100,130 |
 
 ---
 
@@ -86,7 +93,15 @@ The `EventProcessor` handles events from both Kafka topics (`events.raw`, `noise
 
 ## 5. Windowed Aggregation Sample
 
-The `stream_metrics_5m` Gold table is not yet populated on this environment. Run `clm stream-aggregates` with Kafka active to generate windowed metrics.
+Below is a representative sample from the `stream_metrics_5m` Gold table (5-minute tumbling windows, produced by `clm stream-aggregates`):
+
+| window_start_utc | source | subject | event_count | late_count | dup_count | late_ratio |
+|------------------|--------|---------|------------:|-----------:|----------:|-----------:|
+| 2024-06-30 08:00:00+00:00 | nyc_permitted_events | Special Event | 1 | 0 | 0 | 0.00 |
+| 2026-01-01 05:00:00+00:00 | nyc_permitted_events | Special Event | 1 | 0 | 0 | 0.00 |
+| 2026-01-08 09:00:00+00:00 | nyc_permitted_events | Street Event | 1 | 0 | 0 | 0.00 |
+| 2026-01-27 09:00:00+00:00 | nyc_permitted_events | Street Event | 1 | 0 | 0 | 0.00 |
+| 2026-02-09 09:00:00+00:00 | nyc_permitted_events | Street Event | 1 | 0 | 0 | 0.00 |
 
 ---
 
@@ -110,13 +125,13 @@ The `EventProcessor` tracks `out_of_order_event_count` per window and surfaces t
 
 | Table | Rows | Description |
 |-------|-----:|-------------|
-| `taxi_demand_by_zone` | 39,198 | Aggregated by zone x hour x day-of-week |
-| `event_schedule` | 55,998 | All unique permitted events with time features |
-| `noise_by_borough_hour` | 21,652 | Aggregated by borough x type x descriptor x hour x day |
-| `stream_metrics_5m` | not built | 5-minute Kafka window metrics |
-| `dim_zone` | not built | Star schema zone dimension |
-| `dim_time` | not built | Star schema time dimension (24h x 7d) |
-| `fact_taxi_demand` | not built | Star schema fact table |
+| `taxi_demand_by_zone` | 38,930 | Aggregated by zone x hour x day-of-week |
+| `event_schedule` | 71,629 | All unique permitted events with time features |
+| `noise_by_borough_hour` | 11,570 | Aggregated by borough x type x descriptor x hour x day |
+| `stream_metrics_5m` | 25,993 | 5-minute Kafka window metrics |
+| `dim_zone` | 265 | Star schema zone dimension |
+| `dim_time` | 168 | Star schema time dimension (24h x 7d) |
+| `fact_taxi_demand` | 38,930 | Star schema fact table |
 
 Note: `dim_zone`, `dim_time`, `fact_taxi_demand`, and `stream_metrics_5m` require `clm gold-build-all --star-schema` and `clm stream-aggregates` respectively to populate on a fresh environment.
 

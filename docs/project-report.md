@@ -25,6 +25,7 @@
    - 6.1 FastAPI REST API
    - 6.2 Apache Superset Dashboards
    - 6.3 Airflow Orchestration
+   - 6.4 Machine Learning Pipeline 
 7. [Results and Validation](#7-results-and-validation)
 8. [Design Trade-offs and Limitations](#8-design-trade-offs-and-limitations)
 9. [Conclusion](#9-conclusion)
@@ -33,16 +34,17 @@
 
 ## 1. Introduction and Motivation
 
-Urban analytics platforms face a fundamental tension: historical batch data is voluminous, well-structured, and amenable to rich analytical processing, while real-time event streams are sparse, noisy, and require low-latency handling. City Live Monitor was built to resolve this tension by combining three years of NYC Yellow Taxi trip records with live data from two real-time city APIs, then unifying them into a queryable analytical layer.
+Urban analytics platforms need to reconcile two very different data rhythms: large historical batch datasets that are ideal for deep cleaning and enrichment, and small, noisy real-time feeds that require low-latency ingestion and careful deduplication. City Live Monitor addresses that problem by combining NYC Yellow Taxi batch data with streaming 311 noise complaints and permitted events, then serving the result through a Bronze → Silver → Gold lakehouse.
 
-The platform answers questions such as:
+The project currently supports four analytical perspectives:
 
-- **Where and when does taxi demand peak in NYC?**: using 103 million cleaned Silver trips aggregated by zone, hour, and day of the week.
-- **What city events coincide with high taxi demand?**: by joining the Gold event schedule against taxi demand hot-spots.
-- **How do 311 noise complaint patterns vary by borough and hour?**: using streamed complaint data aggregated into per-borough, per-type, per-hour cells.
-- **Is the streaming pipeline healthy?**: via 5-minute windowed metrics tracking late events, duplicates, and out-of-order arrivals.
+- **Taxi demand:** where and when demand peaks across NYC taxi zones.
+- **Event overlap:** which permitted events coincide with high demand areas and times.
+- **Noise patterns:** how noise complaints vary by borough, type, descriptor, and hour.
+- **Streaming health:** whether the Kafka-based stream pipeline is receiving late, duplicate, or out-of-order events.
+- **Activity prediction:** a daily ML pipeline that forecasts high-activity days using taxi, noise, and event signals.
 
-The choice of data sources was deliberate. TLC Yellow Taxi provides the richest structured dataset available for NYC: 35 monthly Parquet files spanning January 2023 to November 2025, each a faithful export of the taxi dispatch system with geospatial zone IDs, timestamps, fare breakdowns, and payment metadata. The streaming sources (Permitted Events and 311 Noise Complaints) are both available on the NYC Open Data Socrata platform and complement the taxi data: events create demand spikes, noise complaints reveal urban friction at the same hours taxis are most active.
+The choice of sources remains deliberate. The TLC Yellow Taxi dataset provides 35 monthly Parquet files spanning January 2023 to November 2025. The streaming sources are the NYC Open Data Socrata APIs for permitted events and 311 noise complaints, both of which are polled incrementally and written to Bronze as immutable NDJSON snapshots. In the current codebase, those snapshots are then used both by the Silver batch processors and by the ML feature builder.
 
 ---
 
@@ -52,43 +54,42 @@ The choice of data sources was deliberate. TLC Yellow Taxi provides the richest 
 ┌──────────────── Sources ───────────────────────────────────────────────┐
 │  NYC TLC Yellow Taxi                 NYC Open Data (Socrata)           │
 │  35 monthly Parquet files            tvpp-9vvx.json  erm2-nwe9.json    │
-│  Jan 2023 – Nov 2025                 Permitted Events  311 Noise       │
 └──────┬──────────────────────────────────────────┬───────────────────────┘
-       │ HTTP batch download                       │ HTTP poll (30s / 30min)
-       │ (parallel, retry, validated)              │ (paginated, incremental)
-       ▼                                           ▼
+    │ batch download (validated, parallel)     │ HTTP pollers (checkpointed)
+    ▼                                           ▼
 ┌──── Bronze ────────────────────────────────────────────────────────────┐
 │  data/bronze/tlc/yellow/YYYY/*.parquet  (.meta.json sidecars)          │
 │  data/bronze/nyc_permitted_events/YYYY/MM/*.ndjson                     │
 │  data/bronze/nyc_311_noise/YYYY/MM/*.ndjson                            │
-│  (immutable, append-only, always has _ingestion_timestamp)             │
 └──────┬──────────────────────────────────────────┬───────────────────────┘
-       │ TLCBatchProcessor                         │ Socrata pollers →
-       │ PermittedEventsSilver                     │ Kafka (events.raw,
-       │ Noise311Silver                            │        noise311.raw)
-       ▼                                           ▼
+    │ TLCBatchProcessor / Silver processors    │ Kafka topics
+    │ PermittedEventsSilverProcessor           │ events.raw / noise311.raw
+    │ Noise311SilverProcessor                  │ events.dlq / noise311.dlq
+    ▼                                           ▼
 ┌──── Silver ────────────────────────────────────────────────────────────┐
 │  data/silver/tlc/yellow/year=YYYY/month=MM/*.parquet                   │
-│  data/silver/events/*.parquet                                          │
-│  data/silver/noise311/*.parquet                                        │
-│  (cleaned, typed, enriched, deduplicated)                              │
+│  data/silver/events/year=YYYY/month=MM/events_silver.parquet           │
+│  data/silver/noise311/year=YYYY/month=MM/*.parquet                     │
+│  (cleaned, typed, enriched, deduplicated, partitioned)                 │
 └──────────────────────────┬─────────────────────────────────────────────┘
-                           │ Gold processors + GoldStarSchemaProcessor
-                           ▼
+                  │ Gold processors + ML dataset builder
+                  ▼
 ┌──── Gold ──────────────────────────────────────────────────────────────┐
 │  taxi_demand_by_zone    event_schedule    noise_by_borough_hour        │
 │  stream_metrics_5m      dim_zone          dim_time    fact_taxi_demand │
-│  (mirrored to MinIO s3://gold-layer/ when MINIO_ENABLED=true)          │
+│  ml_training            ml_prediction                                  │
+│  (mirrored to MinIO when MINIO_ENABLED=true)                           │
 └──────────────────────────┬─────────────────────────────────────────────┘
-                           │ DuckDB read_parquet() views
-                           ▼
+                  │ DuckDB read_parquet() views
+                  ▼
 ┌──── Serving ───────────────────────────────────────────────────────────┐
-│  Apache Superset  (4 dashboards)    FastAPI REST  :8000                │
-│  Airflow DAG      (daily batch)     MinIO console :9001                │
+│  Apache Superset  (5 dashboards)    FastAPI REST  :8000                │
+│  Airflow DAGs     (batch + ML)      MinIO console :9001                │
+│  Prometheus       (9090)            Grafana        (3000)              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-The architecture follows the **medallion pattern**: three successive layers of data quality (Bronze = raw, Silver = clean, Gold = analytical). This pattern was chosen because it provides a clear audit trail (Bronze is immutable and always preserves the original data), separates concerns (cleaning lives in Silver processors, aggregation in Gold processors), and makes re-processing safe and idempotent.
+The architecture follows the medallion pattern because it keeps raw data immutable in Bronze, moves cleaning and validation into Silver, and reserves Gold for analytics-ready outputs and predictions. The same pattern also makes reprocessing safe: every Gold table can be rebuilt from Bronze/Silver without mutating raw inputs.
 
 ---
 
@@ -96,129 +97,28 @@ The architecture follows the **medallion pattern**: three successive layers of d
 
 ### 3.1 Batch Ingestion - NYC TLC Yellow Taxi
 
-The TLC dataset is distributed as monthly Parquet files from a CloudFront CDN. The ingester (`src/backend/ingestion/batch/download_tlc.py`) implements four production-grade features that together make the ingestion process robust for the full 35-file dataset:
+The TLC downloader (`src/backend/ingestion/batch/download_tlc.py`) fetches monthly Parquet files from the public CloudFront CDN and writes them to Bronze. The current implementation is incremental at the file level: existing files that pass validation are skipped, so a restart does not re-download the full corpus.
 
-**Incremental download**: files that already exist on disk and pass validation are skipped. This avoids re-downloading 2 GB of data on restarts.
+The downloader also uses:
 
-**Atomic writes via `.tmp` rename**: the file is written to `<name>.tmp` first, then renamed to its final path only after validation passes. This prevents partially-downloaded files from being treated as complete:
+- parallel downloads with a thread pool
+- retry with exponential backoff on transient failures
+- validation of file size and Parquet magic bytes
+- atomic write via a temporary file and rename
+- `.meta.json` sidecars containing `_ingestion_timestamp`, source filename, and file size
 
-```python
-with open(tmp, "wb") as f:
-    for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
-        f.write(chunk)
-if not _validate(tmp):
-    tmp.unlink(missing_ok=True)
-    return task, False, "downloaded file failed validation"
-tmp.rename(dest)      # atomic on POSIX
-_write_meta(dest)     # write .meta.json sidecar after rename
-```
-
-**Validation**: each file is checked for minimum size (100 KB) and the Parquet magic bytes (`PAR1`) at the start of the file:
-
-```python
-def _validate(path: Path) -> bool:
-    if path.stat().st_size < MIN_FILE_BYTES:
-        return False
-    with open(path, "rb") as f:
-        return f.read(4) == b"PAR1"
-```
-
-**Parallel downloads with retry and exponential backoff**: up to 4 threads download concurrently; each thread retries up to 5 times with delays of 2s, 4s, 8s, 16s, 32s.
-
-**Ingestion timestamp**: every Parquet file is accompanied by a `.meta.json` sidecar written at download time. Because Parquet is a binary format that cannot be modified without rewriting, the sidecar is the appropriate carrier for ingestion metadata:
-
-```json
-{
-  "_ingestion_timestamp": "2026-04-20T18:21:12.264789+00:00",
-  "source_file": "yellow_tripdata_2023-01.parquet",
-  "size_bytes": 47673370
-}
-```
+That sidecar is the only place where ingestion metadata is stored for TLC, because the Parquet payload itself is treated as immutable.
 
 ### 3.2 Streaming Ingestion - Socrata APIs via Kafka
 
-Both streaming sources are polled from the NYC Open Data Socrata platform. The polling architecture is shared: both pollers inherit from `BaseIngester` and use the same `fetch_socrata_rows_paginated` helper from `src/backend/ingestion/streaming/common.py`.
+Both streaming sources are polled from the NYC Open Data Socrata platform and share the same ingestion pattern:
 
-**Polling intervals:**
-- **311 Noise Complaints** (`erm2-nwe9.json`): every 30 seconds. Noise complaints are time-sensitive and can resolve quickly; frequent polling reduces latency.
-- **Permitted Events** (`tvpp-9vvx.json`): every 30 minutes. Event permits are applied weeks in advance; sub-minute polling would waste API quota.
+- **311 Noise Complaints** are polled every 30 seconds.
+- **Permitted Events** are polled every 30 minutes.
 
-**Incremental polling with checkpoints**: rather than fetching the full dataset on every poll, each poller maintains a cursor (the latest `created_date` / `start_date_time` seen) in a local checkpoint file. The Socrata SoQL query uses this cursor as a `WHERE timestamp > cursor` filter:
+The pollers maintain checkpoint files under `data/checkpoints/`. On each successful run, the cursor is advanced only after all Kafka publishes succeed, which gives at-least-once semantics with safe re-ingestion on failure. The code also supports pagination for backfills, a consecutive-failure circuit breaker, and dead-letter topics for malformed events.
 
-```python
-# data/checkpoints/noise311_created_date.txt contains the last seen ISO timestamp
-checkpoint = self._read_checkpoint()   # e.g. "2026-05-17T19:00:00.000"
-
-rows, max_created_date = fetch_socrata_rows_paginated(
-    endpoint=Config.NOISE311_API_URL,
-    timestamp_field="created_date",
-    static_where="complaint_type like 'Noise%'",
-    cursor=checkpoint or Config.NOISE311_BACKFILL_START,
-    ...
-)
-
-if publish_errors == 0 and max_created_date:
-    self._write_checkpoint(max_created_date)   # advance cursor only on success
-```
-
-The checkpoint is only advanced when all Kafka publishes succeed. This gives at-least-once delivery semantics: on a partial failure, the cursor stays at the last safe position and duplicate rows will be re-fetched and deduplicated at the Silver layer.
-
-**Pagination**: Socrata responses are limited to 2,000 rows per request. For backfill scenarios (e.g., the first poll ever, which may have years of history), the helper fetches additional pages until no more rows are returned.
-
-**Circuit breaker**: a consecutive-failure circuit breaker prevents the poller from hammering a temporarily unavailable API. After `max_failures` (default: 5) consecutive failures, the breaker opens for `cooldown_seconds` (default: 120s):
-
-```python
-@dataclass
-class CircuitBreaker:
-    max_failures: int
-    cooldown_seconds: int
-    _failures: int = 0
-    _opened_at: float | None = None
-
-    def before_call(self) -> bool:
-        if self._opened_at is None:
-            return True
-        if time.time() - self._opened_at >= self.cooldown_seconds:
-            self._opened_at = None   # auto-close after cooldown
-            return True
-        return False   # breaker open — skip this cycle
-```
-
-**Kafka publishing**: normalised events are published to topic `events.raw` or `noise311.raw`. Malformed events (missing required fields, invalid timestamps) are routed to dead-letter queues (`events.dlq`, `noise311.dlq`) rather than silently dropped, allowing inspection and replay:
-
-```python
-envelope = self._normalize(row)
-if envelope is None:
-    self._send_dlq(reason="malformed_event", raw=row)
-    continue
-
-self._producer.send(
-    topic=Config.KAFKA_NOISE311_TOPIC,
-    key=envelope["event_id"],    # partition key for ordering
-    payload=envelope,
-)
-```
-
-**Deterministic event IDs**: every event published to Kafka has a stable `event_id` derived from a SHA-256 hash of its key fields. This enables idempotent deduplication when the same event is re-ingested across polling cycles:
-
-```python
-def make_event_id(source: str, row: dict, preferred_fields: list[str]) -> str:
-    parts = [source]
-    for field in preferred_fields:
-        if value := row.get(field):
-            parts.append(str(value))
-    fingerprint = "|".join(parts)
-    return hashlib.sha256(fingerprint.encode()).hexdigest()[:32]
-```
-
-**Bronze persistence**: before publishing to Kafka, each poll writes a full NDJSON snapshot to the Bronze layer. This snapshot is independent of the Kafka pipeline and provides a permanent audit trail even if Kafka topics are purged:
-
-```python
-snapshot_path = write_ndjson_snapshot(bronze_root, self.source_name, rows)
-# data/bronze/nyc_311_noise/2026/05/snapshot_20260517T200537Z.ndjson
-```
-
-Each NDJSON row includes `_ingestion_timestamp` injected at write time, satisfying the Bronze layer's ingestion metadata requirement.
+Each successful poll persists a full NDJSON snapshot to Bronze. Rows in that snapshot include `_ingestion_timestamp`, which keeps the Bronze layer auditable even if Kafka retention is shortened.
 
 ---
 
@@ -243,20 +143,29 @@ for col in ["trip_distance", "fare_amount", "tip_amount", "total_amount", "passe
         data[col] = pd.to_numeric(data[col], errors="coerce")
 ```
 
-**Quality filtering** applies eight rules in sequence, each tracked independently via `FilterRuleStat`. The per-rule tracking makes it possible to measure exactly what is being removed and why: essential for justifying the 16.6% drop rate:
+**Quality filtering** applies a sequence of rules, each tracked independently via `FilterRuleStat`. The processor currently rejects:
 
 | Filter rule | Condition |
 |-------------|-----------|
 | `invalid_datetime` | Pickup or dropoff datetime could not be parsed |
+| `out_of_range_year` | Pickup year outside 2020–2026 |
 | `zero_or_negative_distance` | `trip_distance <= 0` |
 | `negative_fare` | `fare_amount < 0` |
 | `negative_tip` | `tip_amount < 0` |
 | `negative_total` | `total_amount < 0` |
 | `zero_or_missing_passengers` | `passenger_count < 1` |
+| `distance_over_100_miles` | `trip_distance > 100` |
+| `fare_over_500` | `fare_amount > 500` |
+| `passenger_count_over_6` | `passenger_count > 6` |
+| `tip_exceeds_fare` | `tip_amount > fare_amount` |
+| `total_below_fare` | `total_amount < fare_amount` |
 | `non_positive_duration` | `dropoff_datetime <= pickup_datetime` |
-| `invalid_pickup_coords` | Lat/lon outside `[-90,90]` / `[-180,180]` |
+| `duration_under_1_minute` | Trip duration < 1 minute |
+| `duration_over_24_hours` | Trip duration > 24 hours |
+| `pickup_outside_nyc` | Pickup coords outside NYC bounds |
+| `dropoff_outside_nyc` | Dropoff coords outside NYC bounds |
 
-**Feature engineering** adds 14 derived columns to each surviving row. The most analytically significant are:
+**Feature engineering** adds derived columns for trip duration, speed, temporal context, cost ratios, and outlier flags. The processor now exposes the following analytics features:
 
 ```python
 # Temporal features
@@ -273,13 +182,16 @@ data["cost_per_mile"]  = data["total_amount"] / data["trip_distance"].replace(0,
 data["is_tip_outlier"]      = data["tip_percentage"] > 50
 data["is_speed_outlier"]    = data["trip_speed_mph"] > 80
 data["is_unusual_midnight_trip"] = data["hour_of_day"].between(0, 4)
+data["is_trip_distance_outlier"] = data["trip_distance"] > data["trip_distance"].quantile(0.99)
+data["is_fare_outlier"] = data["fare_amount"] > data["fare_amount"].quantile(0.99)
+data["is_duration_outlier_iqr"] = data["trip_duration_minutes"] > upper_iqr
 
 # Duration capping at 95th percentile (IQR-sensitive)
 p95 = data["trip_duration_minutes"].quantile(0.95)
 data["trip_duration_capped_minutes"] = data["trip_duration_minutes"].clip(upper=p95)
 ```
 
-Outlier rows are **flagged, not filtered**. This is an intentional design decision: a tip that is 60% of the fare is unusual but not erroneous. Downstream analysts can choose to exclude outlier-flagged rows for their specific analysis without losing the raw record.
+Outlier rows are **flagged, not filtered**. This lets analysts inspect unusual records without losing raw signal. The processor also caps trip duration at the 95th percentile, which keeps extreme values from dominating downstream averages.
 
 **Output partitioning**: Silver TLC files are written to Hive-style partitions (`year=YYYY/month=MM/`), enabling predicate push-down when DuckDB reads them:
 
@@ -334,7 +246,7 @@ def is_late(self, watermark_delay: timedelta = timedelta(minutes=5)) -> bool:
 
 **Tumbling window aggregations**: metrics are grouped into 5-minute tumbling windows keyed by `(window_start, source, subject)`. Each window accumulates event counts, late counts, duplicate counts, and out-of-order counts.
 
-The `KafkaAggregateRunner` wraps the `EventProcessor` in a Kafka consumer loop, flushing metrics to the `stream_metrics_5m` Gold table at configurable intervals. A single run with `--max-messages 500` produced 256 rows of windowed metrics covering both the `events` and `noise311` sources.
+The `KafkaAggregateRunner` wraps the `EventProcessor` in a Kafka consumer loop, flushing metrics to the `stream_metrics_5m` Gold table at configurable intervals. The resulting metrics include counts for late, duplicate, and out-of-order events, plus a late-event ratio. Those metrics are used in the streaming health dashboard and in the processing report.
 
 ---
 
@@ -363,34 +275,37 @@ Silver applies the full transformation pipeline to Bronze data. The key property
 
 **TLC transformation summary:**
 - 123,897,542 Bronze rows → 103,383,051 Silver rows (83.4% retention)
-- 13 source columns preserved + 14 derived columns added
-- Naive datetimes → UTC-aware; zone IDs int64 → int32; monetary float64
+- 13 source columns preserved + derived features and outlier flags added
+- Naive datetimes → UTC-aware; zone IDs cast to int32; monetary fields cast to numeric
 - Partitioned into 171 files under `year=YYYY/month=MM/`
 
 **Events transformation summary:**
 - 204,469 Bronze rows → 35,209 Silver rows (17.2% retention after cross-snapshot dedup)
-- The low retention is expected: the Socrata endpoint returns the full historical dataset on each poll. Deduplication by `event_id` is the primary transformation.
-- Timestamps parsed to UTC-aware datetime; `event_duration_hours` computed
+- The low retention is expected: the Socrata endpoint returns the full historical dataset on each poll.
+- Deduplication by `event_id` is the primary transformation.
+- Timestamps parsed to UTC-aware datetime; `event_duration_hours` computed; borough normalized from `event_borough`
 
 **Noise311 transformation summary:**
 - 100,131 Bronze rows → 42,376 Silver rows (42.3% retention after dedup)
-- `latitude`/`longitude` cast from string to float64; records outside NYC bounds removed
+- `latitude`/`longitude` cast from string to float64; records outside NYC bounds removed when coordinates exist
 - `resolution_duration_hours` computed from `created_date` and `closed_date`
 
 ### 5.3 Gold Layer and Star Schema
 
-Gold tables are analytics-ready Parquet files consumed directly by Superset and the REST API. All are single-file tables (no partitioning needed at Gold scale).
+Gold tables are analytics-ready Parquet files consumed directly by Superset, the REST API, and the ML workflow. Most tables are single-file outputs, while the ML pipeline writes its own training and prediction artefacts under `data/gold/ml_training/` and `data/gold/ml_prediction/`.
 
 The most significant design decision in the Gold layer is the dual representation of taxi demand:
 
 1. **`taxi_demand_by_zone`**: a denormalised flat table containing all measures alongside their context attributes (borough name, zone name, is_weekend, etc.). Optimised for direct dashboard queries without joins.
 
-2. **Star schema (`dim_zone`, `dim_time`, `fact_taxi_demand`)**: a formal dimensional model enabling proper OLAP-style slice-and-dice queries. `dim_time` pre-computes all 168 hour×day combinations with human-readable labels, so charts can group by `period_label` without runtime string computation.
+2. **Star schema (`dim_zone`, `dim_time`, `fact_taxi_demand`)**: a formal dimensional model enabling OLAP-style slice-and-dice queries. `dim_time` pre-computes all 168 hour×day combinations with human-readable labels.
+
+3. **ML outputs (`ml_training`, `ml_prediction`)**: the activity classifier uses Gold/ML artefacts to train a daily binary model and publish a 7-day forecast.
 
 ```
 dim_zone (265 rows)              dim_time (168 rows)
 ────────────────────             ─────────────────────
-zone_sk (PK) ────────────────┐  time_sk (PK) ──────────┐
+zone_sk (PK) ────────────────┐  time_sk (PK)  ──────────┐
 PULocationID                 │  hour_of_day             │
 borough                      │  day_of_week             │
 zone_name                    │  day_name                │
@@ -411,7 +326,13 @@ service_zone                 │  is_weekend              │
                           pct_rush_hour
 ```
 
-The `GoldStarSchemaProcessor` builds all three tables from the flat aggregate and the reference `taxi_zone_lookup.csv`.
+The `GoldStarSchemaProcessor` builds all three star-schema tables from the flat aggregate and the reference taxi zone lookup.
+
+The ML pipeline is built around `ml_dataset_builder.py`, `classifier.py`, and `predict.py`:
+
+- `build_ml_dataset()` aggregates Silver TLC, events, and noise into a daily dataset with calendar and rolling features.
+- `train_classifier()` trains a `HistGradientBoostingClassifier`, evaluates it with time-series cross-validation, and saves the model.
+- `generate_predictions()` writes the current-day prediction plus a 7-day forecast to `data/gold/ml_prediction/daily_prediction.parquet`.
 
 ### 5.4 Lakehouse with DuckDB and MinIO
 
@@ -434,7 +355,7 @@ CREATE OR REPLACE VIEW batch_streaming_combined AS
     GROUP BY t.hour_of_day;
 ```
 
-**MinIO as an optional S3 mirror**: when `MINIO_ENABLED=true`, every `GoldStorage.write()` call mirrors the Parquet file to `s3://gold-layer/<table_name>/`. This enables access by S3-compatible tools without changing the local query path. The default is `false` so local runs and CI never attempt a network connection.
+**MinIO as an optional S3 mirror**: when `MINIO_ENABLED=true`, every `GoldStorage.write()` call mirrors the Parquet file to `s3://gold-layer/<table_name>/`. This enables access by S3-compatible tools without changing the local query path. The default is `false`, so local runs and CI never attempt a network connection.
 
 **Bronze Validator**: `make validate-bronze` runs `BronzeValidator` across all three sources, checking:
 1. Every file has `_ingestion_timestamp`
@@ -468,6 +389,8 @@ Available endpoints:
 | `GET /gold/noise` | borough, complaint_type, descriptor, hour_of_day, day_of_week, is_weekend, limit | Noise complaint aggregates |
 | `GET /gold/summary` | - | Row counts and metadata for all Gold tables |
 
+The ML pipeline also exposes prediction artefacts through Superset datasets backed by the Gold parquet files in `data/gold/ml_prediction/`.
+
 All endpoints return `{"count": N, "returned": M, "rows": [...]}`: the `count` field reflects the total matching rows, while `returned` reflects the applied `limit`. This lets API consumers page through large result sets efficiently.
 
 Error handling is uniform: if a Gold table has not been built yet, the endpoint returns HTTP 503 with a actionable message rather than a 500:
@@ -485,7 +408,7 @@ def _load_gold_or_404(table: str) -> pd.DataFrame:
 
 ### 6.2 Apache Superset Dashboards
 
-Four dashboards cover the platform's analytical scope:
+Five dashboards cover the platform's analytical scope:
 
 **Dashboard 1: Late-Night Taxi**
 Answers: where is taxi demand concentrated during late-night hours, and how does it compare to daytime? Charts: zone-level heatmap (trip_count × hour), top-10 zones by total trips, trips by hour split weekday vs weekend, average fare by borough.
@@ -500,6 +423,11 @@ Answers: when and where do noise complaints spike, and what types dominate? Char
 Demonstrates the platform's hybrid nature by overlaying batch and streaming data in a single view. Charts: trips + events + noise counts by hour of day (from `batch_streaming_combined` view), streaming event volume by source and type, a quality table showing late-event and duplicate ratios per source from `stream_metrics_5m`.
 
 All dashboards query DuckDB views that read Parquet files directly: no intermediate database loading step.
+
+**Dashboard 5: Prediction**
+Adds a daily activity classifier built from the ML dataset. It shows the current-day confidence, a 7-day forecast, a detail table for forecast rows, and a recent trend comparison between actual and forecast probabilities.
+
+The dashboard bootstrap is scripted and idempotent: `make superset-bootstrap` loads `infra/superset/init_gold_views.sql` and imports dashboard assets from `infra/superset/assets.zip`.
 
 ### 6.3 Airflow Orchestration
 
@@ -532,6 +460,29 @@ DEFAULT_ARGS = {
 
 `max_active_runs=1` prevents overlapping pipeline runs, which would cause race conditions on the Silver and Gold output directories. `catchup=False` prevents Airflow from trying to backfill missed daily runs when the platform is first deployed.
 
+In addition to the batch DAG, the repository also includes `src/backend/airflow/dags/daily_prediction.py`, which refreshes noise counts, retrains the classifier, and generates the daily prediction artefact at 06:00 UTC.
+
+### 6.4 Machine Learning Pipeline
+
+The ML pipeline is a separate Airflow DAG (`src/backend/airflow/dags/daily_prediction.py`) that generates daily activity predictions using the trained HistGradientBoosting classifier. The workflow consists of three steps:
+
+1. **Backfill historical counts** (optional): fetch aggregated daily noise and event counts from the Socrata API to extend training beyond the Bronze/Silver window. Output saved to `data/gold/ml_training/noise311_historical_counts.parquet` and `events_historical_counts.parquet`.
+
+2. **Build ML dataset and train model**: the `train-model` command reads Silver taxi trips, noise complaints, and events, computes calendar features (day-of-week, month, holidays, etc.), rolling noise features (7d/14d/30d averages, percentile rank), and event-derived features (dow-average, weekend/Friday indicators). A binary target (high/low activity) is derived from the training-set noise median to prevent label leakage. The `HistGradientBoostingClassifier` is trained with TimeSeriesSplit cross-validation (n=5). Output: `data/gold/ml_training/ml_dataset.parquet` and `data/gold/ml_training/activity_classifier.pkl`.
+
+3. **Generate predictions**: the `predict-activity` command applies the trained model to all dates in the ML dataset and generates a 7-day forecast by extending the feature logic with holiday proximity and seasonal dummies. Output: `data/gold/ml_prediction/daily_prediction.parquet` containing date, predicted label, probability, and forecast flag.
+
+To manually trigger the ML pipeline:
+
+```bash
+clm backfill-noise311-daily-counts --start-date 2023-01-01 --end-date 2024-05-31
+clm backfill-events-daily-counts --start-date 2023-01-01 --end-date 2026-05-28
+clm train-model --start-date 2023-01-01  # defaults to today
+clm predict-activity --horizon 7
+```
+
+Or via the Airflow DAG (scheduled daily at 06:00 UTC). ML outputs feed the Prediction dashboard in Superset and enable real-time activity classification on incoming data.
+
 ---
 
 ## 7. Results and Validation
@@ -548,15 +499,16 @@ DEFAULT_ARGS = {
 | Silver | 311 Noise Complaints | 42,376 | 42.3% retention after dedup |
 | Gold | taxi_demand_by_zone | 39,198 | 265 zones × 168 hour/day combinations |
 | Gold | event_schedule | 35,209 | All unique events |
-| Gold | noise_by_borough_hour | 8,074 | Borough × type × descriptor × hour × day |
+| Gold | noise_by_borough_hour | 11,570 | Borough × type × descriptor × hour × day |
 | Gold | stream_metrics_5m | 256 | 5-min windows from one Kafka run |
 | Gold | fact_taxi_demand | 39,198 | Star schema fact table |
 | Gold | dim_zone | 265 | All TLC taxi zones |
 | Gold | dim_time | 168 | 24 hours × 7 days |
+| Gold | ml_prediction/daily_prediction | generated at runtime | Daily prediction output |
 
 ### Bronze validation
 
-`make validate-bronze` reports **0 issues** across 62 Bronze files after applying:
+`make validate-bronze` reports **0 issues** across the current Bronze set after applying:
 - Lowercase normalisation for Parquet column names (handles `airport_fee` / `Airport_fee` drift)
 - Exclusion of `_ingestion_timestamp` and `_backfilled` from schema comparison
 - Column-removal-only drift policy (additions from upstream are expected)
@@ -572,13 +524,14 @@ The 16.6% of Bronze TLC rows removed by quality filters break down roughly as fo
 | `non_positive_duration` | Clock errors, same-second pickups and dropoffs |
 | `negative_fare` / `negative_tip` | Reversals and corrections in TLC system |
 | `invalid_datetime` | Rare; very old or malformed timestamps |
-| `invalid_pickup_coords` | Only present in older files with lat/lon columns |
+| `out_of_range_year` | Small number of files outside expected year range |
+| `pickup_outside_nyc` / `dropoff_outside_nyc` | Only present in older files with lat/lon columns |
 
 ### Streaming pipeline quality (from stream_metrics_5m)
 
 From the 256 rows of windowed metrics collected during a single `clm stream-aggregates` run:
-- **Events source:** `late_event_ratio` near 1.0 for most windows: expected, since the Socrata Events API returns historical records from 2020 onward, all of which arrive "late" relative to the watermark
-- **Noise311 source:** lower late-event ratio for recent complaints; higher for backfill records
+- **Events source:** `late_event_ratio` near 1.0 for most windows, expected because the Socrata Events API returns historical records that are ingested in bulk.
+- **Noise311 source:** lower late-event ratio for recent complaints; higher for backfill records.
 
 The high late-event ratio for historical backfill data is not a pipeline failure: it is the correct behaviour of the watermark system detecting that old records are being ingested in bulk.
 
@@ -600,28 +553,33 @@ The limitation is that this approach does not scale to datasets that exceed memo
 
 ### Trade-off: Silver deduplication strategy for streaming data
 
-Silver deduplication for Events and Noise311 is performed at **write time**: each Silver processor reads all existing Silver files, builds a set of seen IDs, and only writes rows with new IDs. This is simple and correct but has O(N) memory cost as the Silver dataset grows.
+Silver deduplication for Events and Noise311 is performed at write time. The event processor merges new rows with the existing canonical month partition, deduplicates by `event_id`, and then rewrites the partition. Noise311 deduplicates by `unique_key` within the transformed snapshot. This keeps the canonical Silver state deterministic, but it does mean a rebuild touches the relevant partitions again.
 
-An alternative would be deduplication at **read time** using DuckDB's `SELECT DISTINCT` over Bronze NDJSON files: this avoids storing the deduped state but re-processes the entire Bronze history on each Silver rebuild. For the current dataset sizes (35,209 and 42,376 unique records), write-time dedup is the better choice.
+The trade-off is intentional: the current dataset sizes are small enough to favor correctness and transparency over incremental complexity.
 
 ### Limitation: temporal coverage mismatch
 
-TLC data covers January 2023 – November 2025, while streaming snapshots only cover March – May 2026. The `batch_streaming_combined` Gold view bridges this gap by treating the taxi demand data as a **time-of-week pattern** (aggregated by hour-of-day and day-of-week) rather than calendar dates, while streaming metrics are similarly aggregated by hour-of-day. This is analytically valid for identifying structural patterns (e.g., "Friday nights at 23:00 see both high taxi demand and high noise") but cannot answer calendar-date queries like "did taxi demand increase during the Taylor Swift concerts?"
+TLC data covers January 2023 to November 2025, while the streaming snapshots and ML features are built from the available 2026 ingestion window. The `batch_streaming_combined` Gold view bridges this gap by working at the hour-of-day level rather than calendar dates. That is appropriate for structural analysis, but it cannot answer date-specific correlation questions.
 
 ### Limitation: streaming coverage
 
-The `stream_metrics_5m` Gold table contains 256 rows from a single demonstration run. A production deployment would run `clm stream-aggregates` continuously or on a schedule, accumulating metrics over time. The infrastructure (Kafka topics, consumer group state, checkpoint files) is fully in place for continuous operation.
+The `stream_metrics_5m` Gold table and the ML prediction output are generated from the currently available runtime runs. A production deployment would run `clm stream-aggregates` and the daily prediction DAG continuously or on a schedule, accumulating more history over time.
+
+### Limitation: ML artefacts are runtime outputs
+
+The classifier model, ML dataset, and daily prediction parquet are generated at runtime. They are not committed to the repository, so first-time bootstrap requires running the ML commands before the Superset prediction dashboard can show fresh data.
 
 ---
 
 ## 9. Conclusion
 
-City Live Monitor implements a complete, production-grade data platform covering the full path from raw data sources to analytics dashboards. The key results are:
+City Live Monitor now implements a complete batch, streaming, and ML analytics platform. The main current outcomes are:
 
-- **124 million raw TLC records** ingested, validated, and cleaned to 103 million Silver rows enriched with 14 analytical features
-- **Two streaming data sources** (Permitted Events and 311 Noise) polled incrementally with circuit breakers, checkpoint-based cursors, and DLQ routing for malformed events
-- **Seven Gold tables** covering flat aggregates and a formal star schema, all queryable via DuckDB in milliseconds
-- **Four Superset dashboards** combining batch and streaming data, built on a fully-scripted bootstrap that installs datasets and charts from YAML manifests
-- **0 Bronze validation issues** after implementing column-removal-only drift detection and case-normalised schema comparison
+- **124 million raw TLC records** ingested, validated, and cleaned to 103 million Silver rows with derived features and outlier flags.
+- **Two streaming sources** polled incrementally with checkpoint-based cursors, circuit breakers, and DLQ routing for malformed events.
+- **Gold tables for analytics and ML**, including taxi demand, events, noise, stream health metrics, star-schema tables, ML training data, and daily prediction artefacts.
+- **Five Superset dashboards** covering taxi, events, noise, streaming health, and prediction.
+- **Two Airflow DAGs**: one for batch medallion processing and one for daily prediction refresh.
+- **Monitoring stack** with Prometheus and Grafana, plus Kafka Exporter.
 
-The platform demonstrates that a hybrid batch/streaming medallion architecture can be implemented on commodity hardware without managed cloud services, using only open-source tools (DuckDB, Kafka, MinIO, Airflow, Superset) and standard Python data libraries. The abstractions introduced: `BaseIngester`, `BaseProcessor`, `GoldStorage`, `BronzeValidator`: provide clear extension points for adding new data sources or output formats without modifying existing processing logic.
+The platform demonstrates that a hybrid batch/streaming/ML medallion architecture can be implemented on commodity hardware without managed cloud services, using open-source tools such as DuckDB, Kafka, MinIO, Airflow, Superset, Prometheus, and Grafana. The abstractions introduced (`BaseIngester`, `BaseProcessor`, `GoldStorage`, `BronzeValidator`) keep the processing code modular and let new sources or outputs be added without rewriting the existing pipeline.
