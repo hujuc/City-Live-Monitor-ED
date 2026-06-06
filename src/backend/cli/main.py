@@ -803,9 +803,9 @@ def _push_ml_metrics(gauges: dict[str, float], job: str = "ml_pipeline") -> None
         for name, value in gauges.items():
             Gauge(name, name.replace("_", " "), registry=registry).set(value)
         push_to_gateway(pushgateway_url, job=job, registry=registry)
-        logger.debug("[metrics] pushed {} gauge(s) to {}", len(gauges), pushgateway_url)
+        logger.info("[metrics] pushed {} gauge(s) to {}", len(gauges), pushgateway_url)
     except Exception as exc:
-        logger.debug("[metrics] pushgateway unavailable, skipping push: {}", exc)
+        logger.warning("[metrics] pushgateway push failed ({}): {}", pushgateway_url, exc)
 
 
 @cli.command("train-model")
