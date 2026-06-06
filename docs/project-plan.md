@@ -1,4 +1,4 @@
-# City Live Monitor — Project Plan
+# City Live Monitor - Project Plan
 
 **Course:** Data Engineering 2025/2026
 **Authors:** Gabriel Silva, Hugo Castro
@@ -7,7 +7,7 @@
 
 ## Idea: NYC Nightlife Pulse
 
-> Where is the city going at 2am — and can we predict it?
+> Where is the city going at 2am - and can we predict it?
 
 Use historical taxi trips to model late-night mobility patterns, cross them with
 permitted events happening tonight, and watch noise complaints light up in real
@@ -17,7 +17,7 @@ time to validate the prediction.
 
 ## Data Sources
 
-### 1. NYC TLC Yellow Taxi Trips — Batch
+### 1. NYC TLC Yellow Taxi Trips - Batch
 
 | Property | Value |
 | --- | --- |
@@ -35,7 +35,7 @@ where taxis go during nightlife hours, by borough and taxi zone.
 
 ---
 
-### 2. NYC Permitted Events — Periodic
+### 2. NYC Permitted Events - Periodic
 
 | Property | Value |
 | --- | --- |
@@ -53,7 +53,7 @@ taxi zones to predict where late-night demand will concentrate.
 
 ---
 
-### 3. NYC 311 Noise Complaints — Event-driven
+### 3. NYC 311 Noise Complaints - Event-driven
 
 | Property | Value |
 | --- | --- |
@@ -62,13 +62,13 @@ taxi zones to predict where late-night demand will concentrate.
 | Provider | NYC 311 via NYC Open Data |
 | Endpoint | `https://data.cityofnewyork.us/resource/erm2-nwe9.json` |
 | Coverage | 2020 – present (continuously updated) |
-| Mechanism | Poll every 30s for rows newer than last checkpoint — emit each new complaint as a Kafka event |
+| Mechanism | Poll every 30s for rows newer than last checkpoint - emit each new complaint as a Kafka event |
 | Key fields | `complaint_type`, `borough`, `latitude`, `longitude`, `created_date` |
 | Filter | `complaint_type like 'Noise%'` |
 | Auth | Free Socrata app token (register at data.cityofnewyork.us) |
 
 **Role:** Real-time signal that nightlife activity is happening. Noise complaints
-spike at 2am on weekends near active event locations — validates and enriches
+spike at 2am on weekends near active event locations - validates and enriches
 the prediction from the batch + events layers.
 
 ---
@@ -85,7 +85,7 @@ Periodic (Permitted Events)
           │
           ▼
 Event stream (311 Noise Complaints)
-  "Noise complaints spiking at venue X right now — prediction confirmed"
+  "Noise complaints spiking at venue X right now - prediction confirmed"
 ```
 
 ---
@@ -114,9 +114,9 @@ Event stream (311 Noise Complaints)
 
 ## Dashboard Ideas (Apache Superset)
 
-1. **Late-night taxi heatmap** — historical dropoff density by zone, filterable by hour and day of week
-2. **Tonight's events map** — active permitted events overlaid on taxi demand zones
-3. **Live noise complaint feed** — rolling 30-min complaint counts by borough, spiking in real time
+1. **Late-night taxi heatmap** - historical dropoff density by zone, filterable by hour and day of week
+2. **Tonight's events map** - active permitted events overlaid on taxi demand zones
+3. **Live noise complaint feed** - rolling 30-min complaint counts by borough, spiking in real time
 
 ---
 

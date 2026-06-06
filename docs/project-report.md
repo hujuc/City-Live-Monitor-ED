@@ -179,7 +179,7 @@ data["is_rush_hour"] = data["hour_of_day"].isin([7, 8, 9, 16, 17, 18, 19])
 data["tip_percentage"] = (data["tip_amount"] / data["fare_amount"].replace(0, float("nan"))) * 100
 data["cost_per_mile"]  = data["total_amount"] / data["trip_distance"].replace(0, float("nan"))
 
-# Outlier flags (not filters — preserved for downstream use)
+# Outlier flags (not filters - preserved for downstream use)
 data["is_tip_outlier"]      = data["tip_percentage"] > 50
 data["is_speed_outlier"]    = data["trip_speed_mph"] > 80
 data["is_unusual_midnight_trip"] = data["hour_of_day"].between(0, 4)
@@ -224,7 +224,7 @@ def process_event(self, raw: dict) -> EventEnvelope | None:
     return envelope
 ```
 
-**Deduplication within a sliding window**: the processor maintains a dictionary of seen event IDs mapped to their arrival time. IDs older than the dedup window (default: 10 minutes) are expired to prevent unbounded memory growth. Eviction is handled by `_evict_old_ids()`, which is called from `_record_seen()` after a new event is accepted — keeping `_is_duplicate` itself a simple membership check:
+**Deduplication within a sliding window**: the processor maintains a dictionary of seen event IDs mapped to their arrival time. IDs older than the dedup window (default: 10 minutes) are expired to prevent unbounded memory growth. Eviction is handled by `_evict_old_ids()`, which is called from `_record_seen()` after a new event is accepted - keeping `_is_duplicate` itself a simple membership check:
 
 ```python
 def _is_duplicate(self, envelope: EventEnvelope) -> bool:
@@ -359,7 +359,7 @@ CREATE OR REPLACE VIEW batch_streaming_combined AS
 The validator uses lowercase normalisation for Parquet column names because TLC changed `airport_fee` to `Airport_fee` between file versions: a case change that is not a breaking schema change:
 
 ```python
-# Only flag removals — additions from upstream are expected
+# Only flag removals - additions from upstream are expected
 cols = frozenset(c.lower() for c in df.columns)
 removed = baseline_cols - cols
 if removed:
@@ -378,7 +378,7 @@ Available endpoints:
 
 | Endpoint | Filters | Description |
 |----------|---------|-------------|
-| `GET /health` | — | Service health check |
+| `GET /health` | - | Service health check |
 | `GET /gold/taxi-demand` | borough, zone_id, hour_of_day, day_of_week, is_weekend, limit | Taxi demand aggregates |
 | `GET /gold/events` | borough, is_nightlife_event, is_weekend_event, start_after, start_before, limit | Event schedule |
 | `GET /gold/noise` | borough, complaint_type, descriptor, hour_of_day, day_of_week, is_weekend, limit | Noise complaint aggregates |
@@ -397,7 +397,7 @@ def _load_gold_or_404(table: str) -> pd.DataFrame:
     except FileNotFoundError:
         raise HTTPException(
             status_code=503,
-            detail=f"Gold table '{table}' not available — run `uv run clm gold-build-all`",
+            detail=f"Gold table '{table}' not available - run `uv run clm gold-build-all`",
         )
 ```
 
@@ -567,7 +567,7 @@ The platform ships a production-grade observability stack that starts automatica
 
 **MinIO Storage (`nyc-minio`)** monitors disk usage percentage, free bytes, total object count, and S3 API traffic. Disk alerts fire at 90% (warning) and 95% (critical), because the Gold pipeline writes several gigabytes per batch run.
 
-**Airflow (`nyc-airflow`)** monitors the scheduler heartbeat (Alive/Dead), DAG bag size, import error count, executor slot usage, and — via Pushgateway — the time elapsed since each DAG last succeeded. Each DAG's final task pushes `airflow_dag_last_success_timestamp_seconds` to Pushgateway; Grafana displays `time() - airflow_dag_last_success_timestamp_seconds` with a human-readable duration unit.
+**Airflow (`nyc-airflow`)** monitors the scheduler heartbeat (Alive/Dead), DAG bag size, import error count, executor slot usage, and - via Pushgateway - the time elapsed since each DAG last succeeded. Each DAG's final task pushes `airflow_dag_last_success_timestamp_seconds` to Pushgateway; Grafana displays `time() - airflow_dag_last_success_timestamp_seconds` with a human-readable duration unit.
 
 ### Alert rules
 

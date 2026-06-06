@@ -115,12 +115,12 @@ make health                    # check all services
 |---------|-----|-------------|
 | Superset dashboards | <http://localhost:8088> | admin / admin |
 | Airflow scheduler | <http://localhost:8080> | admin / admin |
-| FastAPI REST API | <http://localhost:8000> | — |
+| FastAPI REST API | <http://localhost:8000> | - |
 | MinIO console | <http://localhost:9001> | minioadmin / minioadmin |
-| Kafka broker | `localhost:9092` | — |
-| Prometheus | <http://localhost:9090> | — |
+| Kafka broker | `localhost:9092` | - |
+| Prometheus | <http://localhost:9090> | - |
 | Grafana | <http://localhost:3000> | admin / `GRAFANA_PASSWORD` |
-| Pushgateway | <http://localhost:9091> | — |
+| Pushgateway | <http://localhost:9091> | - |
 
 ---
 
