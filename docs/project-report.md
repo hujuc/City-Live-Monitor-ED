@@ -413,19 +413,29 @@ Five dashboards cover the platform's analytical scope:
 **Dashboard 1: Late-Night Taxi**
 Answers: where is taxi demand concentrated during late-night hours, and how does it compare to daytime? Charts: zone-level heatmap (trip_count × hour), top-10 zones by total trips, trips by hour split weekday vs weekend, average fare by borough.
 
+![Late-Night Taxi dashboard](screenshots/Late-NightTaxi.png)
+
 **Dashboard 2: Tonight's Events**
 Answers: what permitted events are happening, where, and when? Charts: events by borough, events by type, events per day timeline, upcoming nightlife events table. Nightlife events are identified by a heuristic flag (`is_nightlife_event`) set at Gold processing time.
+
+![Tonight's Events dashboard](screenshots/Events.png)
 
 **Dashboard 3: Live Noise Complaints**
 Answers: when and where do noise complaints spike, and what types dominate? Charts: noise by borough × hour heatmap, noise by hour (weekday vs weekend), descriptor breakdown by borough, top complaint types.
 
+![Live Noise Complaints dashboard](screenshots/Noise.png)
+
 **Dashboard 4: Batch + Streaming Combined**
 Demonstrates the platform's hybrid nature by overlaying batch and streaming data in a single view. Charts: trips + events + noise counts by hour of day (from `batch_streaming_combined` view), streaming event volume by source and type, a quality table showing late-event and duplicate ratios per source from `stream_metrics_5m`.
 
-All dashboards query DuckDB views that read Parquet files directly: no intermediate database loading step.
+![Batch + Streaming Combined dashboard](screenshots/Batch+StreamingCombined.png)
 
 **Dashboard 5: Prediction**
 Adds a daily activity classifier built from the ML dataset. It shows the current-day confidence, a 7-day forecast, a detail table for forecast rows, and a recent trend comparison between actual and forecast probabilities.
+
+![Prediction dashboard](screenshots/Prediction.png)
+
+All dashboards query DuckDB views that read Parquet files directly: no intermediate database loading step.
 
 The dashboard bootstrap is scripted and idempotent: `make superset-bootstrap` loads `infra/superset/init_gold_views.sql` and imports dashboard assets from `infra/superset/assets.zip`.
 

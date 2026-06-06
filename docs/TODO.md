@@ -142,7 +142,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 ### 6.3 Deliverables
 
-- [ ] Description and screenshots of each dashboard and all charts (for project report / submission)
+- [x] Description and screenshots of each dashboard and all charts (for project report / submission)
 - [-] Verify Superset export (`make superset-export`) is current; confirm dashboards load cleanly after fresh `docker compose up`
 
 ---
@@ -152,7 +152,7 @@ Status legend: `[x]` done, `[-]` partial, `[ ]` not started
 - [x] Code Repository: modular, runnable — README.md complete, all feature branches merged to master
 - [x] Architecture & Contracts: architecture diagram in project-report.md + data contracts written (`docs/data-contracts.md`) for both real-time sources
 - [x] Populated Storage: demonstrable Bronze (62 files), Silver (279+ files), Gold (7 tables + star schema), MinIO mirror
-- [-] Dashboards: 4 dashboards working locally — screenshots and Superset export still pending
+- [-] Dashboards: 5 dashboards working locally — screenshots documented; Superset export freshness still pending
 - [x] Project Report (`docs/project-report.md`) — merged to master; covers full orchestrated system
 - [ ] Final Presentation
 
