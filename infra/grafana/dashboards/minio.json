@@ -3,14 +3,22 @@
   "uid": "nyc-minio",
   "schemaVersion": 38,
   "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "title": "Disk Usage %",
       "description": "Raw disk used as a percentage of total. Red above 95% - Gold writes will fail.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
       "targets": [
         {
           "expr": "100 * (minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes) / minio_cluster_capacity_raw_total_bytes",
@@ -20,26 +28,52 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "value": null, "color": "green" },
-              { "value": 80, "color": "yellow" },
-              { "value": 90, "color": "orange" },
-              { "value": 95, "color": "red" }
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "yellow"
+              },
+              {
+                "value": 90,
+                "color": "orange"
+              },
+              {
+                "value": 95,
+                "color": "red"
+              }
             ]
           }
         }
       },
-      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 2,
       "title": "Free Disk Space",
       "description": "Raw free bytes remaining on the MinIO volume.",
       "type": "stat",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
       "targets": [
         {
           "expr": "minio_cluster_capacity_raw_free_bytes",
@@ -49,25 +83,51 @@
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "value": null, "color": "red" },
-              { "value": 3221225472, "color": "orange" },
-              { "value": 5368709120, "color": "yellow" },
-              { "value": 10737418240, "color": "green" }
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 3221225472,
+                "color": "orange"
+              },
+              {
+                "value": 5368709120,
+                "color": "yellow"
+              },
+              {
+                "value": 10737418240,
+                "color": "green"
+              }
             ]
           }
         }
       },
-      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 3,
       "title": "MinIO Online",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
           "expr": "up{job=\"minio\"}",
@@ -76,23 +136,58 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "value": null, "color": "red" },
-              { "value": 1, "color": "green" }
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1,
+                "color": "green"
+              }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green"
+                }
+              }
+            }
+          ]
         }
       },
-      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 4,
       "title": "Total Objects Stored",
       "type": "stat",
-      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
       "targets": [
         {
           "expr": "minio_cluster_usage_object_total",
@@ -100,16 +195,33 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        }
       },
-      "options": { "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "options": {
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 5,
       "title": "Disk Usage Over Time",
       "description": "Raw free vs total bytes - growth spikes align with batch pipeline runs.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "minio_cluster_capacity_raw_total_bytes - minio_cluster_capacity_raw_free_bytes",
@@ -120,14 +232,23 @@
           "legendFormat": "free"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
     },
     {
       "id": 6,
       "title": "Data Stored (usable)",
       "description": "Total usable data stored - this is what the Gold layer parquet files consume.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "minio_cluster_usage_total_bytes",
@@ -138,28 +259,46 @@
           "legendFormat": "usable capacity"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
     },
     {
       "id": 7,
       "title": "S3 Incoming Requests",
       "description": "Rate of incoming S3 API requests.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "rate(minio_s3_requests_incoming_total[1m])",
           "legendFormat": "req/s"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
     },
     {
       "id": 8,
       "title": "S3 Rejected Requests",
       "description": "Requests rejected by auth, invalid headers, or bad timestamps - correlates with Gold upload failures.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "rate(minio_s3_requests_rejected_auth_total[1m])",
@@ -174,14 +313,23 @@
           "legendFormat": "header rejected"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
     },
     {
       "id": 9,
       "title": "S3 Traffic",
       "description": "Bytes sent and received - upload spikes show Gold table writes.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "rate(minio_s3_traffic_sent_bytes[1m])",
@@ -192,20 +340,33 @@
           "legendFormat": "received"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "Bps" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
     },
     {
       "id": 10,
       "title": "MinIO Memory Usage",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "minio_node_process_resident_memory_bytes",
           "legendFormat": "RSS"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
     }
   ]
 }
