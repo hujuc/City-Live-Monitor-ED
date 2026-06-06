@@ -88,6 +88,7 @@ services:
       _PIP_ADDITIONAL_REQUIREMENTS: >-
         loguru click rich fastapi uvicorn requests kafka-python
         pandas pyarrow python-dotenv
+        holidays scikit-learn joblib numpy prometheus-client
       PYTHONPATH: /opt/airflow/src
       # Airflow 3.x Simple Auth Manager config is under [core]
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_USER:-admin}:admin
